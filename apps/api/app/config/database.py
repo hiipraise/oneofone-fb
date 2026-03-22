@@ -74,8 +74,14 @@ def override_db_context(
 
 
 def get_client() -> Optional[AsyncIOMotorClient]:
-    return _client_override.get() or client
+    override_client = _client_override.get()
+    if override_client is not None:
+        return override_client
+    return client
 
 
 def get_db() -> Optional[AsyncIOMotorDatabase]:
-    return _db_override.get() or db
+    override_db = _db_override.get()
+    if override_db is not None:
+        return override_db
+    return db
