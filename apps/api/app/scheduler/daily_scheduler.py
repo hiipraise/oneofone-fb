@@ -19,13 +19,12 @@ Log document shape (required by scheduler route):
 """
 import asyncio
 import logging
-import threading
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.config.database import get_db, _db_override
+from app.config.database import get_db
 from app.config.settings import settings
 import time
 from app.services.web_search_service import get_serpapi_usage
@@ -72,13 +71,33 @@ async def _log_to_db(
 
 
 def _log_sync(level: str, message: str, **kwargs) -> None:
-    """Sync wrapper — runs the async log writer in the event loop."""
+    """Sync wrapper that logs with an isolated loop and DB client."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from app.config.database import override_db_context
+
+    async def _run() -> None:
+        sched_client = AsyncIOMotorClient(settings.MONGODB_URI)
+        sched_db = sched_client[settings.MONGODB_DB]
+        try:
+            with override_db_context(sched_db, sched_client):
+                await _log_to_db(level, message, **kwargs)
+        finally:
+            try:
+                sched_client.close()
+            except Exception:
+                pass
+
     try:
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(_log_to_db(level, message, **kwargs))
-        loop.close()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_run())
     except Exception as e:
         logger.warning(f"[scheduler] _log_sync error: {e}")
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
 
 
 # ── Odds API fixture discovery ────────────────────────────────────────────────
@@ -293,7 +312,6 @@ def run_daily_predictions() -> None:
             with override_db_context(_sched_db, _sched_client):
                 await _run_predictions_async()
         finally:
-            _db_override.reset(token)
             try:
                 _sched_client.close()
             except Exception:
@@ -355,7 +373,6 @@ def run_result_resolution() -> None:
             with override_db_context(_sched_db, _sched_client):
                 await _run_resolution_async()
         finally:
-            _db_override.reset(token)
             try:
                 _sched_client.close()
             except Exception:
