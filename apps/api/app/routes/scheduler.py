@@ -4,6 +4,7 @@ Scheduler API — status, manual trigger, and run logs.
 """
 import logging
 from datetime import datetime, timezone
+from app.utils.timezone import WAT
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -57,7 +58,7 @@ async def get_scheduler_status():
     if last_log:
         last_log.pop("_id", None)
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(WAT).strftime("%Y-%m-%d")
     today_counts: dict[str, int] = {}
     for sport in _SUPPORTED_SPORTS:
         count = await db.predictions.count_documents({
@@ -102,7 +103,7 @@ async def trigger_scheduler():
     return {
         "status": "triggered",
         "message": "Daily prediction job started in background",
-        "triggered_at": datetime.now(timezone.utc).isoformat(),
+        "triggered_at": datetime.now(WAT).isoformat(),
     }
 
 
@@ -123,7 +124,7 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
 async def get_today_fixtures():
     """Today's generated predictions grouped by sport."""
     db = _require_db()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(WAT).strftime("%Y-%m-%d")
     result: dict[str, list] = {s: [] for s in _SUPPORTED_SPORTS}
 
     async for pred in db.predictions.find(
@@ -165,5 +166,5 @@ async def trigger_resolution():
     return {
         "status": "triggered",
         "message": "Result resolution job started in background",
-        "triggered_at": datetime.now(timezone.utc).isoformat(),
+        "triggered_at": datetime.now(WAT).isoformat(),
     }    

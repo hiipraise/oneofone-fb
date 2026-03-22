@@ -2,7 +2,7 @@
 """
 Daily sports prediction scheduler.
 
-Runs at the configured UTC hour, discovers today's fixtures via the Odds API,
+Runs at the configured WAT hour, discovers today's fixtures via the Odds API,
 generates predictions for all supported sports, and writes structured logs to
 the `system_logs` MongoDB collection so the /api/scheduler/logs endpoint can
 surface them.
@@ -12,7 +12,7 @@ Log document shape (required by scheduler route):
     "source":    "daily_scheduler",
     "level":     "INFO" | "WARNING" | "ERROR",
     "message":   str,
-    "timestamp": datetime (UTC),
+    "timestamp": datetime (WAT),
     "sport":     str | None,   # optional context
     "count":     int | None,   # optional prediction count
   }
@@ -20,6 +20,7 @@ Log document shape (required by scheduler route):
 import asyncio
 import logging
 from datetime import datetime, timezone
+from app.utils.timezone import WAT
 from typing import List, Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_SPORTS: List[str] = ["soccer", "basketball"]
 
 # ── APScheduler instance (exported so scheduler_route can inspect it) ─────────
-scheduler = BackgroundScheduler(timezone="UTC")
+scheduler = BackgroundScheduler(timezone="Africa/Lagos")
 
 
 # ── MongoDB log writer ────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ async def _log_to_db(
             "source":    "daily_scheduler",
             "level":     level.upper(),
             "message":   message,
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(WAT),
         }
         if sport is not None:
             doc["sport"] = sport
@@ -106,7 +107,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
     """Fetch upcoming fixtures for today from the Odds API, then fall back to ESPN."""
     import requests
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(WAT).strftime("%Y-%m-%d")
     sport_keys = SPORT_KEYS.get(sport, SPORT_KEYS["soccer"])
     should_fallback_to_espn = not bool(settings.ODDS_API_KEY)
 
@@ -211,8 +212,8 @@ async def _run_predictions_async() -> None:
     """Main async body — runs inside a fresh event loop from run_daily_predictions()."""
     from app.services.prediction_service import generate_prediction
 
-    run_start = datetime.now(timezone.utc)
-    await _log_to_db("INFO", f"Daily scheduler started — {run_start.strftime('%Y-%m-%d %H:%M UTC')}")
+    run_start = datetime.now(WAT)
+    await _log_to_db("INFO", f"Daily scheduler started — {run_start.strftime('%Y-%m-%d %H:%M WAT')}")
 
     serper_before   = get_serpapi_usage()["used"]
     total_generated = 0
@@ -285,7 +286,7 @@ async def _run_predictions_async() -> None:
         except Exception as e:
             logger.warning(f"[scheduler] Quota recording failed: {e}")
 
-    elapsed = (datetime.now(timezone.utc) - run_start).seconds
+    elapsed = (datetime.now(WAT) - run_start).seconds
     await _log_to_db(
         "INFO",
         f"Daily scheduler complete — {total_generated} predictions generated, "
@@ -338,8 +339,8 @@ def run_daily_predictions() -> None:
 
 async def _run_resolution_async() -> None:
     """Fetch completed scores and auto-submit actual results."""
-    run_start = datetime.now(timezone.utc)
-    await _log_to_db("INFO", f"Result resolver started — {run_start.strftime('%Y-%m-%d %H:%M UTC')}")
+    run_start = datetime.now(WAT)
+    await _log_to_db("INFO", f"Result resolver started — {run_start.strftime('%Y-%m-%d %H:%M WAT')}")
 
     try:
         summary = await resolve_results()
@@ -427,9 +428,9 @@ def start_scheduler() -> None:
     scheduler.start()
     logger.info(
         f"[scheduler] Started — predictions at "
-        f"{settings.DAILY_PREDICTION_HOUR:02d}:{settings.DAILY_PREDICTION_MINUTE:02d} UTC, "
+        f"{settings.DAILY_PREDICTION_HOUR:02d}:{settings.DAILY_PREDICTION_MINUTE:02d} WAT, "
         f"resolution at "
-        f"{settings.RESULT_RESOLUTION_HOUR:02d}:{settings.RESULT_RESOLUTION_MINUTE:02d} UTC"
+        f"{settings.RESULT_RESOLUTION_HOUR:02d}:{settings.RESULT_RESOLUTION_MINUTE:02d} WAT"
     )
 
 

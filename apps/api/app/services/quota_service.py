@@ -1,6 +1,7 @@
 # app/services/quota_service.py
 import logging
 from datetime import datetime, timezone
+from app.utils.timezone import WAT
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ async def record_serpapi_calls(n: int = 1) -> None:
         from app.config.database import get_db
         db = get_db()
 
-        month_key = datetime.now(timezone.utc).strftime("%Y-%m")
+        month_key = datetime.now(WAT).strftime("%Y-%m")
         doc_id = f"quota:{month_key}"
 
         await db.serpapi_quota.update_one(
@@ -27,7 +28,7 @@ async def record_serpapi_calls(n: int = 1) -> None:
 
 
 async def get_persisted_quota() -> dict:
-    month_key = datetime.now(timezone.utc).strftime("%Y-%m")
+    month_key = datetime.now(WAT).strftime("%Y-%m")
     fallback = {
         "month": month_key,
         "used": 0,

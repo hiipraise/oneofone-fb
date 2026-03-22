@@ -27,6 +27,7 @@ import logging
 import pickle
 import os
 from datetime import datetime, timezone, timedelta
+from app.utils.timezone import WAT
 from typing import Dict, List, Optional, Any, Tuple, Literal, cast
 
 import numpy as np
@@ -451,7 +452,7 @@ class PredictionEngine:
             return {"status": "skipped", "samples": len(training_records), "sport": sport}
 
         rows, labels, weights = [], [], []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(WAT)
 
         for rec in training_records:
             feats   = rec.get("features", {})
@@ -466,7 +467,7 @@ class PredictionEngine:
             w = 1.0
             if match_date_str:
                 try:
-                    md = datetime.fromisoformat(match_date_str).replace(tzinfo=timezone.utc)
+                    md = datetime.fromisoformat(match_date_str).replace(tzinfo=WAT)
                     age_days = (now - md).days
                     if age_days <= 30:
                         w = 2.0
