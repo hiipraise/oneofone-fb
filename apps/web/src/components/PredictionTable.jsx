@@ -9,6 +9,19 @@ function outcomeTag(outcome) {
   return <span className="tag-gray">—</span>
 }
 
+
+function resolutionStatus(pred, resolvedMatch) {
+  if (!resolvedMatch?.actual_outcome) {
+    return { icon: '➖', label: 'Pending', className: 'text-gray-600' }
+  }
+
+  if (resolvedMatch.actual_outcome === pred.predicted_outcome) {
+    return { icon: '✔️', label: 'Correct', className: 'text-brand-greenlight' }
+  }
+
+  return { icon: '❌', label: 'Miss', className: 'text-brand-redlight' }
+}
+
 function pctCell(value, highlight = false) {
   const pct = Math.round((value || 0) * 100)
   const color = highlight
@@ -70,7 +83,7 @@ function DeleteButton({ matchId, onDeleted }) {
   )
 }
 
-export default function PredictionTable({ predictions = [], showSport = true, onRefetch }) {
+export default function PredictionTable({ predictions = [], resolvedMatches = {}, showSport = true, onRefetch }) {
   const [sortKey, setSortKey] = useState('timestamp')
   const [sortDir, setSortDir] = useState('desc')
   const [localPreds, setLocalPreds] = useState(null)
@@ -139,6 +152,7 @@ export default function PredictionTable({ predictions = [], showSport = true, on
               {showSport && <Col label="DRAW%" k="draw_probability" />}
               <Col label="AWAY%" k="away_win_probability" />
               <Col label="CONF" k="confidence_score" />
+              <Col label="STATUS" k={null} />
               <Col label="DATE" k="timestamp" />
               <Col label="" k={null} className="w-16" />
             </tr>
@@ -151,6 +165,8 @@ export default function PredictionTable({ predictions = [], showSport = true, on
                 : '—'
               const isHome = pred.predicted_outcome === 'home_win'
               const isAway = pred.predicted_outcome === 'away_win'
+              const resolvedMatch = resolvedMatches[pred.match_id]
+              const status = resolutionStatus(pred, resolvedMatch)
 
               return (
                 <React.Fragment key={pred.match_id || `${startIndex + i}`}>
@@ -205,6 +221,12 @@ export default function PredictionTable({ predictions = [], showSport = true, on
                     <td className="px-4 py-3">{pctCell(pred.away_win_probability, isAway)}</td>
                     <td className="px-4 py-3">{pctCell(pred.confidence_score)}</td>
                     <td className="px-4 py-3">
+                      <div className={`font-display text-xs flex items-center gap-1.5 whitespace-nowrap ${status.className}`}>
+                        <span>{status.icon}</span>
+                        <span>{status.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
                       <span className="font-display text-xs text-gray-600 whitespace-nowrap">
                         {pred.timestamp
                           ? new Date(pred.timestamp).toLocaleDateString()
@@ -219,7 +241,7 @@ export default function PredictionTable({ predictions = [], showSport = true, on
                   {/* Expanded match ID row */}
                   {isExpanded && pred.match_id && (
                     <tr className="border-b border-brand-midgray bg-brand-darkgray">
-                      <td colSpan={showSport ? 10 : 8} className="px-4 py-3">
+                      <td colSpan={showSport ? 11 : 9} className="px-4 py-3">
                         <div className="flex items-center gap-3 flex-wrap">
                           <span className="label">FULL MATCH ID</span>
                           <code className="font-display text-xs text-gray-400 bg-brand-gray px-2 py-1 rounded-sm break-all">
@@ -237,6 +259,11 @@ export default function PredictionTable({ predictions = [], showSport = true, on
                           {(pred.confidence_interval_low != null) && (
                             <span className="font-display text-xs text-gray-600">
                               CI: {Math.round(pred.confidence_interval_low * 100)}%–{Math.round(pred.confidence_interval_high * 100)}%
+                            </span>
+                          )}
+                          {resolvedMatch?.actual_outcome && (
+                            <span className={`font-display text-xs ${status.className}`}>
+                              {status.icon} Actual: {resolvedMatch.actual_outcome.replace('_', ' ').toUpperCase()}
                             </span>
                           )}
                         </div>

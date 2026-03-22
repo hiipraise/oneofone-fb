@@ -56,7 +56,32 @@ function BttsBadge({ btts }) {
 }
 
 // ─── Main card ───────────────────────────────────────────────────────────────
-export default function PredictionCard({ prediction }) {
+
+function ResolutionBadge({ prediction, resolvedMatch }) {
+  if (!prediction?.match_id) return null
+
+  if (!resolvedMatch?.actual_outcome) {
+    return (
+      <span className="font-display text-xs px-2 py-0.5 rounded-sm border border-brand-midgray text-gray-500">
+        ➖ Pending
+      </span>
+    )
+  }
+
+  const correct = resolvedMatch.actual_outcome === prediction.predicted_outcome
+
+  return (
+    <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+      correct
+        ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+        : 'text-brand-redlight bg-brand-reddark border-brand-red'
+    }`}>
+      {correct ? '✔️ Correct' : '❌ Miss'}
+    </span>
+  )
+}
+
+export default function PredictionCard({ prediction, resolvedMatch }) {
   const [expanded, setExpanded] = useState(false)
 
   if (!prediction) return null
@@ -118,6 +143,7 @@ export default function PredictionCard({ prediction }) {
           <div className="flex items-center gap-1.5 flex-wrap mb-1">
             {sport && <span className="tag-gray">{sport.toUpperCase()}</span>}
             {league && <span className="tag-gray truncate max-w-[120px]">{league}</span>}
+            <ResolutionBadge prediction={prediction} resolvedMatch={resolvedMatch} />
             {!is_trained_model && (
               <span className="tag-gray text-yellow-600">PRIOR</span>
             )}
@@ -189,6 +215,20 @@ export default function PredictionCard({ prediction }) {
             <div>
               <p className="label mb-1">MATCH ID</p>
               <p className="font-display text-xs text-gray-600 break-all">{match_id}</p>
+            </div>
+          )}
+
+          {resolvedMatch?.actual_outcome && (
+            <div>
+              <p className="label mb-1">RESOLUTION</p>
+              <p className="font-display text-xs text-gray-400">
+                Actual outcome: {resolvedMatch.actual_outcome.replace('_', ' ').toUpperCase()}
+              </p>
+              {(resolvedMatch.home_score != null && resolvedMatch.away_score != null) && (
+                <p className="font-display text-xs text-gray-600 mt-1">
+                  Final score: {resolvedMatch.home_score} - {resolvedMatch.away_score}
+                </p>
+              )}
             </div>
           )}
 
