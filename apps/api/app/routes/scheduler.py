@@ -3,7 +3,7 @@
 Scheduler API — status, manual trigger, and run logs.
 """
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -15,6 +15,12 @@ from app.scheduler.daily_scheduler import scheduler, run_daily_predictions, _SUP
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _require_db():
+    db = get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not connected")
+    return db
 
 def _next_run_iso(sched: BackgroundScheduler) -> Optional[str]:
     try:
@@ -28,7 +34,7 @@ def _next_run_iso(sched: BackgroundScheduler) -> Optional[str]:
 
 @router.get("/status")
 async def get_scheduler_status():
-    db = get_db()
+    db = _require_db()
     next_run = _next_run_iso(scheduler)
 
     # Next resolution run
@@ -103,7 +109,7 @@ async def trigger_scheduler():
 @router.get("/logs")
 async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
     """Recent scheduler log entries."""
-    db = get_db()
+    db = _require_db()
     logs: List[dict] = []
     async for doc in db.system_logs.find(
         {"source": "daily_scheduler"}
@@ -116,7 +122,7 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
 @router.get("/fixtures/today")
 async def get_today_fixtures():
     """Today's generated predictions grouped by sport."""
-    db = get_db()
+    db = _require_db()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     result: dict[str, list] = {s: [] for s in _SUPPORTED_SPORTS}
 
