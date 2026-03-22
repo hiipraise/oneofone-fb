@@ -6,7 +6,7 @@ Supports: soccer and basketball only.
 import logging
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 import requests
@@ -157,6 +157,108 @@ def search_fixtures(
 
     logger.info(f"No fixture found: {home_team} vs {away_team} [{sport}]")
     return None
+
+
+def find_matching_espn_event(
+    home_team: str,
+    away_team: str,
+    sport: str,
+    date: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    sport = sport.lower()
+    leagues = ESPN_SCOREBOARD_LEAGUES.get(sport, [])
+    if not leagues:
+        return None
+
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    for espn_sport, league, league_name in leagues:
+        try:
+            resp = requests.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/{espn_sport}/{league}/scoreboard",
+                params={"dates": target_date.replace("-", "")},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+
+            for event in resp.json().get("events", []):
+                competition = (event.get("competitions") or [{}])[0]
+                competitors = competition.get("competitors") or []
+                home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+                away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+                if not home or not away:
+                    continue
+
+                home_name = (
+                    home.get("team", {}).get("displayName")
+                    or home.get("team", {}).get("shortDisplayName")
+                    or ""
+                )
+                away_name = (
+                    away.get("team", {}).get("displayName")
+                    or away.get("team", {}).get("shortDisplayName")
+                    or ""
+                )
+                if not (
+                    _fuzzy_match(home_team, home_name)
+                    and _fuzzy_match(away_team, away_name)
+                ):
+                    continue
+
+                status = event.get("status", {}).get("type", {})
+                return {
+                    "fixture_id": event.get("id", ""),
+                    "home_team": home_name,
+                    "away_team": away_name,
+                    "sport": sport,
+                    "league": league_name,
+                    "league_id": league,
+                    "match_date": (event.get("date") or "")[:10] or target_date,
+                    "match_time": (event.get("date") or "")[11:16] if event.get("date") else "",
+                    "validated": True,
+                    "source": "espn",
+                    "status": {
+                        "name": status.get("name"),
+                        "description": status.get("description"),
+                        "detail": status.get("detail"),
+                        "state": status.get("state"),
+                        "completed": bool(status.get("completed")),
+                    },
+                }
+        except Exception as e:
+            logger.debug(f"ESPN event search error [{sport}:{league}]: {e}")
+
+    return None
+
+
+def is_fixture_completed(
+    home_team: str,
+    away_team: str,
+    sport: str,
+    date: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    event = find_matching_espn_event(home_team, away_team, sport, date)
+    if not event:
+        return None
+
+    status = event.get("status") or {}
+    detail = (status.get("detail") or "").strip().lower()
+    state = (status.get("state") or "").strip().lower()
+    completed = bool(status.get("completed"))
+
+    if completed or state == "post" or "full time" in detail or detail == "ft":
+        return {
+            **event,
+            "completed": True,
+            "status_text": status.get("detail") or status.get("description") or status.get("name"),
+        }
+
+    return {
+        **event,
+        "completed": False,
+        "status_text": status.get("detail") or status.get("description") or status.get("name"),
+    }
 
 
 def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:

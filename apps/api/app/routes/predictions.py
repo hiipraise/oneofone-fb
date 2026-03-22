@@ -8,7 +8,11 @@ from app.services.prediction_service import (
     create_prediction, get_predictions, get_prediction_by_id,
     save_actual_result, trigger_learning_update, soft_delete_prediction, restore_prediction,
 )
-from app.services.match_validation_service import fetch_available_leagues, search_fixtures
+from app.services.match_validation_service import (
+    fetch_available_leagues,
+    is_fixture_completed,
+    search_fixtures,
+)
 from app.config.api_contract import PREDICTIONS_LIMIT_DEFAULT, PREDICTIONS_LIMIT_MAX
 
 logger = logging.getLogger(__name__)
@@ -42,9 +46,18 @@ async def validate_match(
     sport: str = Query("soccer"),
     date: Optional[str] = Query(None),
 ):
+    status = is_fixture_completed(home_team, away_team, sport, date)
+    if status and status.get("completed"):
+        return {
+            "found": True,
+            "completed": True,
+            "fixture": status,
+            "message": "Match already finished full time",
+        }
+
     fixture = search_fixtures(home_team, away_team, sport, date)
     if fixture:
-        return {"found": True, "fixture": fixture}
+        return {"found": True, "completed": False, "fixture": fixture}
     return {"found": False, "message": "Match not found in upcoming fixtures"}
 
 

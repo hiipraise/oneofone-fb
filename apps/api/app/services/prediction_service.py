@@ -33,6 +33,7 @@ from app.services.web_search_service import (
     fetch_betting_odds,
     _fetch_combined_h2h_venue,
 )
+from app.services.match_validation_service import is_fixture_completed
 from app.services.market_service import compute_all_markets
 from app.ml.prediction_engine import prediction_engine
 from app.utils.logging_util import log_system_event
@@ -73,6 +74,20 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
     match_date = request.match_date or datetime.utcnow().strftime("%Y-%m-%d")
     sport      = str(request.sport.value)
     match_id   = _generate_match_id(request.home_team, request.away_team, sport, match_date)
+
+    if not request.skip_validation:
+        fixture_status = is_fixture_completed(
+            request.home_team,
+            request.away_team,
+            sport,
+            match_date,
+        )
+        if fixture_status and fixture_status.get("completed"):
+            status_text = fixture_status.get("status_text") or "Full Time"
+            raise ValueError(
+                f"Cannot generate a prediction for {request.home_team} vs "
+                f"{request.away_team}: the match is already finished ({status_text})."
+            )
 
     existing = await db.predictions.find_one({"match_id": match_id, "deleted_at": None})
     if existing:
