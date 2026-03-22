@@ -1,6 +1,7 @@
 # app/routes/metrics.py
 import logging
 from datetime import datetime, timezone, timedelta
+from app.utils.timezone import WAT
 from fastapi import APIRouter, Query
 from app.config.database import get_db
 
@@ -119,7 +120,7 @@ async def get_metrics_summary():
 @router.get("/confidence-history")
 async def get_confidence_history(days: int = Query(30, ge=7, le=180)):
     db = get_db()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(WAT) - timedelta(days=days)).strftime("%Y-%m-%d")
 
     pipeline = [
         {

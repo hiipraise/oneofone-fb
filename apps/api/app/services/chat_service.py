@@ -11,6 +11,7 @@ of what create_prediction() already fetched — that's now removed.
 import logging
 import re as _re
 from datetime import datetime, timezone
+from app.utils.timezone import WAT
 from typing import Optional, List, Dict, Any
 
 import httpx
@@ -216,5 +217,5 @@ async def process_chat(request) -> dict:
         response=ai_response,
         prediction=prediction_output,
         sources=search_sources,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(WAT),
     )

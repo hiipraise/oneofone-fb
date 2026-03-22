@@ -1,6 +1,7 @@
 # app/services/memory_service.py
 import logging
 from datetime import datetime, timezone
+from app.utils.timezone import now_wat, WAT
 from typing import List, Dict, Optional
 import uuid
 
@@ -15,8 +16,8 @@ async def create_session() -> str:
     db = get_db()
     await db.chat_sessions.insert_one({
         "session_id": session_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(WAT).isoformat(),
+        "updated_at": datetime.now(WAT).isoformat(),
         "message_count": 0,
         "predictions_made": [],
         "teams_discussed": [],
@@ -30,11 +31,11 @@ async def append_message(session_id: str, role: str, content: str, metadata: Opt
     db = get_db()
     await db.chat_messages.insert_one({
         "session_id": session_id, "role": role, "content": content,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(WAT).isoformat(),
         "metadata": metadata or {},
     })
 
-    update = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    update = {"updated_at": datetime.now(WAT).isoformat()}
     if metadata:
         if metadata.get("home_team"):
             await db.chat_sessions.update_one(
@@ -119,7 +120,7 @@ async def soft_delete_session(session_id: str) -> bool:
     db = get_db()
     result = await db.chat_sessions.update_one(
         {"session_id": session_id},
-        {"$set": {"deleted_at": datetime.utcnow().isoformat()}},
+        {"$set": {"deleted_at": now_wat().isoformat()}},
     )
     return result.matched_count > 0
 

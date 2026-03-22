@@ -195,7 +195,7 @@ The system functions without API keys using DuckDuckGo scraping and statistical 
 
 ## Daily Automation
 
-APScheduler runs at 06:00 UTC daily:
+APScheduler runs at 06:00 WAT daily:
 - Fetches today's upcoming fixtures (API-Football via RapidAPI if configured)
 - Runs prediction pipeline for each fixture
 - Saves all predictions to MongoDB

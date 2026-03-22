@@ -21,6 +21,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timezone
+from app.utils.timezone import now_wat, WAT
 from typing import Dict, Optional, List, Any
 
 from pymongo.errors import ConfigurationError
@@ -71,7 +72,7 @@ def _generate_match_id(home: str, away: str, sport: str, date: str = "") -> str:
 
 async def create_prediction(request: PredictionRequest) -> PredictionOutput:
     db = get_db()
-    match_date = request.match_date or datetime.utcnow().strftime("%Y-%m-%d")
+    match_date = request.match_date or now_wat().strftime("%Y-%m-%d")
     sport      = str(request.sport.value)
     match_id   = _generate_match_id(request.home_team, request.away_team, sport, match_date)
 
@@ -100,8 +101,8 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
                 else:
                     ts_dt = ts
                 if ts_dt.tzinfo is None:
-                    ts_dt = ts_dt.replace(tzinfo=timezone.utc)
-                age_hours = (datetime.now(timezone.utc) - ts_dt).total_seconds() / 3600
+                    ts_dt = ts_dt.replace(tzinfo=WAT)
+                age_hours = (datetime.now(WAT) - ts_dt).total_seconds() / 3600
                 is_fresh  = age_hours < _PREDICTION_TTL_HOURS
                 if not is_fresh:
                     logger.info(
@@ -157,7 +158,7 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
         confidence_interval_high=result["confidence_interval_high"],
         predicted_outcome=result["predicted_outcome"],
         model_version=result["model_version"],
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(WAT),
         features_used=features,
         data_sources=[
             "ESPN Public API", "The Odds API",
@@ -174,7 +175,7 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
 
     snapshot = {
         "match_id": match_id, "sport": sport,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": now_wat().isoformat(),
         "match_date": match_date,
         "home_raw": home_stats, "away_raw": away_stats,
         "h2h_raw": h2h, "odds_raw": odds, "features": features,
@@ -215,7 +216,7 @@ async def soft_delete_prediction(match_id: str) -> bool:
     db = get_db()
     result = await db.predictions.update_one(
         {"match_id": match_id},
-        {"$set": {"deleted_at": datetime.utcnow().isoformat()}},
+        {"$set": {"deleted_at": now_wat().isoformat()}},
     )
     return result.matched_count > 0
 
@@ -277,7 +278,7 @@ async def save_actual_result(
         "actual_outcome": actual_outcome,
         "actual_result":  f"{home_score}-{away_score}",
         "match_date":     match_date,
-        "recorded_at":    datetime.utcnow().isoformat(),
+        "recorded_at":    now_wat().isoformat(),
     }
     if prediction:
         doc.update({
@@ -410,7 +411,7 @@ async def _trigger_learning_update_impl(db) -> None:
                 await db.model_metrics.insert_one({
                     "model_version":  prediction_engine.model_version,
                     "sport":          sport,
-                    "date":           datetime.utcnow().isoformat(),
+                    "date":           now_wat().isoformat(),
                     **{k: metrics.get(k, 0) for k in (
                         "brier_score", "log_loss", "calibration_error",
                         "accuracy", "total_predictions", "ml_weight",
