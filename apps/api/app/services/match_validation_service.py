@@ -7,6 +7,7 @@ import logging
 import re
 import unicodedata
 from datetime import datetime, timezone
+from app.utils.timezone import now_wat, WAT
 from typing import Dict, List, Optional, Any
 
 import requests
@@ -170,7 +171,7 @@ def find_matching_espn_event(
     if not leagues:
         return None
 
-    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    target_date = date or datetime.now(WAT).strftime("%Y-%m-%d")
 
     for espn_sport, league, league_name in leagues:
         try:
@@ -270,7 +271,7 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
         logger.warning(f"Unsupported sport for fixture fetch: {sport}")
         return []
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = now_wat().strftime("%Y-%m-%d")
     fixtures: List[Dict] = []
     seen: set = set()
 
@@ -456,7 +457,7 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
     if not leagues:
         return []
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = now_wat().strftime("%Y-%m-%d")
     fixtures: List[Dict] = []
     seen: set[tuple[str, str, str]] = set()
 

@@ -23,6 +23,7 @@ import time
 import hashlib
 import threading
 from datetime import datetime
+from app.utils.timezone import now_wat
 from typing import Dict, List, Optional, Any
 
 import numpy as np
@@ -116,7 +117,7 @@ def _quota_save(data: Dict) -> None:
 
 def _quota_check() -> bool:
     data = _quota_load()
-    current_month = datetime.utcnow().strftime("%Y-%m")
+    current_month = now_wat().strftime("%Y-%m")
     if data.get("month") != current_month:
         data = {"month": current_month, "count": 0}
     if data["count"] >= MONTHLY_BUDGET:
@@ -130,7 +131,7 @@ def _quota_check() -> bool:
 
 def _quota_increment() -> None:
     data = _quota_load()
-    current_month = datetime.utcnow().strftime("%Y-%m")
+    current_month = now_wat().strftime("%Y-%m")
     if data.get("month") != current_month:
         data = {"month": current_month, "count": 0}
     data["count"] = data.get("count", 0) + 1
@@ -144,7 +145,7 @@ def get_serpapi_usage() -> Dict:
     Now reflects Serper.dev usage.
     """
     data = _quota_load()
-    current_month = datetime.utcnow().strftime("%Y-%m")
+    current_month = now_wat().strftime("%Y-%m")
     if data.get("month") != current_month:
         return {
             "month": current_month, "used": 0,
@@ -442,7 +443,7 @@ def _fetch_rapidapi_team_stats(team_name: str, sport: str) -> Optional[Dict[str,
 
             team_id = teams[0]["team"]["id"]
             # Get current season stats — use current year
-            season = datetime.utcnow().year
+            season = now_wat().year
             resp2 = requests.get(
                 "https://api-football-v1.p.rapidapi.com/v3/teams/statistics",
                 headers=_rapidapi_headers(),
@@ -490,7 +491,7 @@ def _fetch_rapidapi_team_stats(team_name: str, sport: str) -> Optional[Dict[str,
                 return None
 
             team_id = teams[0]["id"]
-            season  = datetime.utcnow().year - (1 if datetime.utcnow().month < 9 else 0)
+            season  = now_wat().year - (1 if now_wat().month < 9 else 0)
             resp2 = requests.get(
                 "https://api-nba-v1.p.rapidapi.com/teams/statistics",
                 headers=headers_nba,
@@ -753,7 +754,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
     stats: Dict[str, Any] = {
         "team":                   team_name,
         "sport":                  sport,
-        "data_freshness":         datetime.utcnow().isoformat(),
+        "data_freshness":         now_wat().isoformat(),
         **form_data,
         "estimated_squad_impact": combined.get("estimated_squad_impact", 0.0),
     }

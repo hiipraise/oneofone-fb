@@ -5,6 +5,7 @@
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from app.utils.timezone import WAT
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-STARTED_AT_UTC = datetime.now(timezone.utc)
+STARTED_AT_WAT = datetime.now(WAT)
 
 
 # ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
@@ -72,8 +73,8 @@ app.include_router(meta.router,        prefix="/api/meta",        tags=["meta"])
 @app.get("/health", tags=["system"])
 async def health():
     db_connected = get_db() is not None
-    now = datetime.now(timezone.utc)
-    uptime_seconds = int((now - STARTED_AT_UTC).total_seconds())
+    now = datetime.now(WAT)
+    uptime_seconds = int((now - STARTED_AT_WAT).total_seconds())
     return {
         "status":  "ok",
         "version": get_current_model_version(),

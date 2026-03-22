@@ -11,6 +11,7 @@ Called by the daily scheduler — never touches FastAPI's Motor client directly.
 import logging
 import re
 from datetime import datetime, timezone, timedelta
+from app.utils.timezone import WAT
 from typing import List, Dict, Optional
 
 import requests
@@ -27,7 +28,7 @@ _DAYS_FROM = 2
 
 def _date_range(days_back: int) -> List[str]:
     """Return the last `days_back` dates as YYYYMMDD strings (today first)."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(WAT).date()
     return [
         (today - timedelta(days=d)).strftime("%Y%m%d")
         for d in range(days_back)
@@ -209,7 +210,7 @@ async def resolve_results() -> Dict:
 
     db = get_db()
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(WAT) - timedelta(days=3)).strftime("%Y-%m-%d")
     stored: List[Dict] = []
     async for pred in db.predictions.find(
         {"match_date": {"$gte": cutoff}, "deleted_at": None},
