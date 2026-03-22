@@ -1,7 +1,7 @@
 // src/pages/HistoryPage.jsx
 import React, { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { usePredictions } from '../hooks/useData'
+import { usePredictions, useResults } from '../hooks/useData'
 import PredictionTable from '../components/PredictionTable'
 import PredictionCard from '../components/PredictionCard'
 import { submitResult } from '../services/api'
@@ -29,6 +29,12 @@ export default function HistoryPage() {
     sport === 'all' ? null : sport,
     200,
   )
+  const { data: results = [] } = useResults(200)
+
+  const resolvedMatches = results.reduce((map, result) => {
+    if (result?.match_id) map[result.match_id] = result
+    return map
+  }, {})
 
   // Client-side search filter
   const filtered = search.trim().length > 1
@@ -147,7 +153,7 @@ export default function HistoryPage() {
 
       {/* Predictions */}
       {view === 'table' ? (
-        <PredictionTable predictions={filtered} onRefetch={refetch} />
+        <PredictionTable predictions={filtered} resolvedMatches={resolvedMatches} onRefetch={refetch} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
           {loading
@@ -155,7 +161,11 @@ export default function HistoryPage() {
                 <div key={i} className="card p-4 animate-pulse h-40" />
               ))
             : filtered.map((pred, i) => (
-                <PredictionCard key={pred.match_id || i} prediction={pred} onDelete={() => refetch()} />
+                <PredictionCard
+                  key={pred.match_id || i}
+                  prediction={pred}
+                  resolvedMatch={resolvedMatches[pred.match_id]}
+                />
               ))}
           {!loading && !filtered.length && (
             <div className="col-span-3 card p-8 text-center">
