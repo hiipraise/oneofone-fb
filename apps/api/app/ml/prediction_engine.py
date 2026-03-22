@@ -278,15 +278,33 @@ class PredictionEngine:
             f["home_pace_signal"]     = float(home_data.get("pace_signal", 0.5))
             f["away_pace_signal"]     = float(away_data.get("pace_signal", 0.5))
 
-        for k in f:
-            if k not in _RAW_STAT_KEYS:
-                f[k] = float(np.clip(f[k], 0.0, 1.0))
+        for k in list(f):
+            f[k] = self._sanitize_value(k, f[k])
 
         return f
 
+    def _sanitize_value(self, key: str, value: Any) -> float:
+        default = _DEFAULTS.get(key, 0.5)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = default
+
+        if not np.isfinite(numeric):
+            numeric = default
+
+        if key not in _RAW_STAT_KEYS:
+            numeric = float(np.clip(numeric, 0.0, 1.0))
+        return numeric
+
+    def _sanitize_probabilities(self, probabilities: np.ndarray) -> np.ndarray:
+        sanitized = np.asarray(probabilities, dtype=np.float64)
+        sanitized = np.nan_to_num(sanitized, nan=0.5, posinf=1.0, neginf=0.0)
+        return np.clip(sanitized, 1e-6, 1.0 - 1e-6)
+
     def _fv(self, features: Dict[str, float], sport: str) -> np.ndarray:
         keys = FEATURE_KEYS.get(sport, FEATURE_KEYS["soccer"])
-        return np.array([features.get(k, _DEFAULTS.get(k, 0.5)) for k in keys], dtype=np.float64)
+        return np.array([self._sanitize_value(k, features.get(k, _DEFAULTS.get(k, 0.5))) for k in keys], dtype=np.float64)
 
     # ── Prior prediction ──────────────────────────────────────────────────────
 
@@ -335,7 +353,7 @@ class PredictionEngine:
         if self.is_trained.get(sport) and model is not None and w_ml > 0:
             try:
                 fv_scaled = self.scalers[sport].transform(fv.reshape(1, -1))
-                probs_arr = model.predict_proba(fv_scaled)[0]
+                probs_arr = self._sanitize_probabilities(model.predict_proba(fv_scaled)[0])
                 classes   = list(model.classes_)
                 class_map = dict(zip(classes, probs_arr))
 
@@ -532,7 +550,7 @@ class PredictionEngine:
         y_proba  = self.models[sport].predict_proba(X_scaled)  # type: ignore[union-attr]
         classes  = list(self.models[sport].classes_)            # type: ignore[union-attr]
         home_idx = classes.index(1) if 1 in classes else 0
-        home_probs    = y_proba[:, home_idx]
+        home_probs = self._sanitize_probabilities(y_proba[:, home_idx])
         binary_labels = (y == 1).astype(int)
 
         bs = brier_score_loss(binary_labels, home_probs)
@@ -556,7 +574,7 @@ class PredictionEngine:
             return {}
         probs_home, actuals = [], []
         for rec in records:
-            pred   = rec.get("home_win_probability", 0.5)
+            pred = self._sanitize_probabilities(np.array([rec.get("home_win_probability", 0.5)], dtype=np.float64))[0]
             actual = rec.get("actual_outcome")
             if actual is None:
                 continue
