@@ -329,15 +329,12 @@ def _run_learning_in_thread() -> None:
 
 async def _learning_with_own_client() -> None:
     """
-    Opens a dedicated AsyncIOMotorClient, swaps the global db pointer
-    (so get_db() works inside helpers), runs learning, then restores.
-    Identical pattern to the scheduler's _run_predictions_async().
+    Opens a dedicated AsyncIOMotorClient and scopes it to this coroutine via
+    a context-local database override so other event loops never see the
+    background thread's Motor client.
     """
     from motor.motor_asyncio import AsyncIOMotorClient
-    from app.config import database as db_module
-
-    _saved_db     = db_module.db
-    _saved_client = db_module.client
+    from app.config.database import override_db_context
 
     try:
         learn_client = AsyncIOMotorClient(settings.MONGODB_URI)
@@ -351,13 +348,11 @@ async def _learning_with_own_client() -> None:
             )
             return
         raise
-    learn_db     = learn_client[settings.MONGODB_DB]
-
-    db_module.db     = learn_db
-    db_module.client = learn_client
+    learn_db = learn_client[settings.MONGODB_DB]
 
     try:
-        await _trigger_learning_update_impl(learn_db)
+        with override_db_context(learn_db, learn_client):
+            await _trigger_learning_update_impl(learn_db)
     except Exception as e:
         logger.error(f"Learning update failed: {e}", exc_info=True)
     finally:
@@ -365,9 +360,7 @@ async def _learning_with_own_client() -> None:
             learn_client.close()
         except Exception:
             pass
-        db_module.db     = _saved_db
-        db_module.client = _saved_client
-        logger.info("Learning: isolated Motor client closed, main client restored")
+        logger.info("Learning: isolated Motor client closed")
 
 
 async def _trigger_learning_update_impl(db) -> None:
