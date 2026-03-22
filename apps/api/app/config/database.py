@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
@@ -11,27 +12,57 @@ logger = logging.getLogger(__name__)
 
 client: Optional[AsyncIOMotorClient] = None
 db: Optional[AsyncIOMotorDatabase] = None
+_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 _db_override: ContextVar[Optional[AsyncIOMotorDatabase]] = ContextVar("db_override", default=None)
 _client_override: ContextVar[Optional[AsyncIOMotorClient]] = ContextVar("client_override", default=None)
 
 
+def _ensure_client_for_current_loop() -> Optional[AsyncIOMotorDatabase]:
+    global client, db, _client_loop
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if current_loop is None:
+        return db
+
+    if db is not None and _client_loop is current_loop:
+        return db
+
+    if client is not None and _client_loop is not current_loop:
+        logger.info("Detected event loop change for MongoDB client; rebuilding Motor client for the active loop")
+        client.close()
+        client = None
+        db = None
+
+    if client is None:
+        logger.info(f"Connecting to MongoDB at {settings.MONGODB_URI}")
+        client = AsyncIOMotorClient(settings.MONGODB_URI)
+        db = client[settings.MONGODB_DB]
+        _client_loop = current_loop
+
+    return db
+
+
 async def connect_db():
-    global client, db
-    logger.info(f"Connecting to MongoDB at {settings.MONGODB_URI}")
-    client = AsyncIOMotorClient(settings.MONGODB_URI)
-    db = client[settings.MONGODB_DB]
+    active_db = _ensure_client_for_current_loop()
+    if active_db is None:
+        raise RuntimeError("Database connection has not been established")
     await create_indexes()
     logger.info("MongoDB connected and indexes created")
 
 
 async def disconnect_db():
-    global client, db
+    global client, db, _client_loop
     if client:
         client.close()
         logger.info("MongoDB disconnected")
     client = None
     db = None
+    _client_loop = None
 
 
 async def create_indexes():
@@ -84,4 +115,4 @@ def get_db() -> Optional[AsyncIOMotorDatabase]:
     override_db = _db_override.get()
     if override_db is not None:
         return override_db
-    return db
+    return _ensure_client_for_current_loop()
