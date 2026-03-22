@@ -27,12 +27,12 @@ async def list_results(limit: int = Query(50, ge=1, le=200)):
             doc["home_win_probability"] = pred.get("home_win_probability")
             doc["away_win_probability"] = pred.get("away_win_probability")
             doc["draw_probability"] = pred.get("draw_probability")
-            doc["predicted_outcome"] = pred.get("predicted_outcome")
-            doc["confidence_score"] = pred.get("confidence_score")
-            doc["home_team"] = pred.get("home_team")
-            doc["away_team"] = pred.get("away_team")
-            doc["sport"] = pred.get("sport")
-            doc["league"] = pred.get("league")
+            doc["predicted_outcome"] = pred.get("predicted_outcome") or doc.get("predicted_outcome")
+            doc["confidence_score"] = pred.get("confidence_score") or doc.get("confidence_score")
+            doc["home_team"] = pred.get("home_team") or doc.get("home_team")
+            doc["away_team"] = pred.get("away_team") or doc.get("away_team")
+            doc["sport"] = pred.get("sport") or doc.get("sport")
+            doc["league"] = pred.get("league") or doc.get("league")
 
         results.append(doc)
 

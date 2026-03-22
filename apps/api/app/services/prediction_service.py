@@ -257,14 +257,38 @@ async def save_actual_result(
             else "draw"
         )
 
+    prediction = await db.predictions.find_one(
+        {"match_id": match_id},
+        {
+            "_id": 0,
+            "home_team": 1,
+            "away_team": 1,
+            "sport": 1,
+            "league": 1,
+            "predicted_outcome": 1,
+            "confidence_score": 1,
+        },
+    )
+
     doc = {
         "match_id":       match_id,
         "home_score":     home_score,
         "away_score":     away_score,
         "actual_outcome": actual_outcome,
+        "actual_result":  f"{home_score}-{away_score}",
         "match_date":     match_date,
         "recorded_at":    datetime.utcnow().isoformat(),
     }
+    if prediction:
+        doc.update({
+            "home_team": prediction.get("home_team"),
+            "away_team": prediction.get("away_team"),
+            "sport": prediction.get("sport"),
+            "league": prediction.get("league"),
+            "predicted_outcome": prediction.get("predicted_outcome"),
+            "confidence_score": prediction.get("confidence_score"),
+        })
+
     await db.actual_results.replace_one({"match_id": match_id}, doc, upsert=True)
 
     # Launch learning in a daemon thread — never blocks the HTTP response
