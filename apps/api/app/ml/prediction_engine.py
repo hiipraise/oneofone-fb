@@ -44,7 +44,9 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = "models"
+MODEL_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "models")
+)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
