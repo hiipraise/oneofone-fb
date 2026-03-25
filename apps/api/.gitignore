@@ -29,8 +29,6 @@ ENV/
 *.log
 logs/
 oneofone.log
-data/
-models/
 
 # -----------------------------
 # IDE / Editor
