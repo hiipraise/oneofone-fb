@@ -17,7 +17,6 @@ DuckDuckGo calls are NOT quota-counted (they're free).
 """
 import json
 import logging
-import os
 import re
 import time
 import hashlib
@@ -40,19 +39,26 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_SHORT  = 3_600   #  1 h
 CACHE_TTL_MEDIUM = 21_600  #  6 h
 CACHE_TTL_LONG   = 86_400  # 24 h
-DISK_CACHE_PATH  = "data/search_cache.json"
-QUOTA_STORE_PATH = "data/serper_quota.json"   # renamed from serpapi_quota.json
 
-os.makedirs("data", exist_ok=True)
+# NOTE:
+# File-based cache/quota state causes drift across pods and serverless instances.
+# Keep runtime state in memory by default (portable + free), and let Mongo-backed
+# quota_service provide persisted monthly accounting for production dashboards.
+ENABLE_FILE_CACHE = False
 
 _mem_cache: Dict[str, Dict] = {}
+_quota_state: Dict[str, Any] = {"month": "", "count": 0}
 
 
 def _load_disk_cache() -> None:
+    if not ENABLE_FILE_CACHE:
+        return
     global _mem_cache
-    if os.path.exists(DISK_CACHE_PATH):
+    disk_cache_path = "data/search_cache.json"
+    import os
+    if os.path.exists(disk_cache_path):
         try:
-            with open(DISK_CACHE_PATH, "r") as f:
+            with open(disk_cache_path, "r") as f:
                 _mem_cache = json.load(f)
             now = time.time()
             _mem_cache = {
@@ -66,8 +72,10 @@ def _load_disk_cache() -> None:
 
 
 def _save_disk_cache() -> None:
+    if not ENABLE_FILE_CACHE:
+        return
     try:
-        with open(DISK_CACHE_PATH, "w") as f:
+        with open("data/search_cache.json", "w") as f:
             json.dump(_mem_cache, f)
     except Exception as e:
         logger.debug(f"Disk cache save failed: {e}")
@@ -98,21 +106,16 @@ MONTHLY_BUDGET = 2_400  # hard cap; keeps 100 buffer from the 2,500 free limit
 
 
 def _quota_load() -> Dict:
-    if os.path.exists(QUOTA_STORE_PATH):
-        try:
-            with open(QUOTA_STORE_PATH, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"month": "", "count": 0}
+    return dict(_quota_state)
 
 
 def _quota_save(data: Dict) -> None:
-    try:
-        with open(QUOTA_STORE_PATH, "w") as f:
-            json.dump(data, f)
-    except Exception:
-        pass
+    _quota_state.update(
+        {
+            "month": str(data.get("month", "")),
+            "count": int(data.get("count", 0)),
+        }
+    )
 
 
 def _quota_check() -> bool:
