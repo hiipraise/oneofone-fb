@@ -37,13 +37,11 @@ async def append_message(session_id: str, role: str, content: str, metadata: Opt
 
     update = {"updated_at": datetime.now(WAT).isoformat()}
     if metadata:
-        if metadata.get("home_team"):
+        teams = [team for team in [metadata.get("home_team"), metadata.get("away_team")] if team]
+        if teams:
             await db.chat_sessions.update_one(
                 {"session_id": session_id},
-                {"$addToSet": {
-                    "teams_discussed": metadata["home_team"],
-                    "teams_discussed": metadata.get("away_team", ""),
-                }},
+                {"$addToSet": {"teams_discussed": {"$each": teams}}},
             )
         if metadata.get("sport"):
             await db.chat_sessions.update_one(
