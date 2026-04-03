@@ -50,17 +50,48 @@ SPORT_KEYS: Dict[str, List[str]] = {
 
 ESPN_SCOREBOARD_LEAGUES: Dict[str, List[tuple[str, str, str]]] = {
     "soccer": [
+        # England
         ("soccer", "eng.1", "Premier League"),
+        ("soccer", "eng.2", "EFL Championship"),
+        ("soccer", "eng.3", "EFL League One"),
+        ("soccer", "eng.4", "EFL League Two"),
+        # Spain
         ("soccer", "esp.1", "LaLiga"),
+        ("soccer", "esp.2", "LaLiga 2"),
+        # Germany
         ("soccer", "ger.1", "Bundesliga"),
+        ("soccer", "ger.2", "2. Bundesliga"),
+        # Italy
         ("soccer", "ita.1", "Serie A"),
+        ("soccer", "ita.2", "Serie B"),
+        # France
         ("soccer", "fra.1", "Ligue 1"),
-        ("soccer", "usa.1", "MLS"),
-        ("soccer", "por.1", "Primeira Liga"),
-        ("soccer", "ned.1", "Eredivisie"),
-        ("soccer", "mex.1", "Liga MX"),
+        ("soccer", "fra.2", "Ligue 2"),
+        # Europe + international club
         ("soccer", "uefa.champions", "UEFA Champions League"),
         ("soccer", "uefa.europa", "UEFA Europa League"),
+        ("soccer", "uefa.europa.conf", "UEFA Europa Conference League"),
+        # North America
+        ("soccer", "usa.1", "MLS"),
+        ("soccer", "mex.1", "Liga MX"),
+        # Rest of world major domestic leagues
+        ("soccer", "por.1", "Primeira Liga"),
+        ("soccer", "ned.1", "Eredivisie"),
+        ("soccer", "bel.1", "Belgian Pro League"),
+        ("soccer", "sco.1", "Scottish Premiership"),
+        ("soccer", "tur.1", "Turkish Super Lig"),
+        ("soccer", "sui.1", "Swiss Super League"),
+        ("soccer", "aut.1", "Austrian Bundesliga"),
+        ("soccer", "den.1", "Danish Superliga"),
+        ("soccer", "nor.1", "Norwegian Eliteserien"),
+        ("soccer", "swe.1", "Swedish Allsvenskan"),
+        ("soccer", "arg.1", "Argentine Primera División"),
+        ("soccer", "bra.1", "Brazilian Serie A"),
+        ("soccer", "col.1", "Categoría Primera A"),
+        ("soccer", "chi.1", "Chilean Primera División"),
+        ("soccer", "jpn.1", "J1 League"),
+        ("soccer", "aus.1", "A-League Men"),
+        ("soccer", "ksa.1", "Saudi Pro League"),
     ],
     "basketball": [
         ("basketball", "nba", "NBA"),
