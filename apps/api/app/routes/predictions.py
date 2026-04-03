@@ -14,6 +14,7 @@ from app.services.match_validation_service import (
     search_fixtures,
 )
 from app.config.api_contract import PREDICTIONS_LIMIT_DEFAULT, PREDICTIONS_LIMIT_MAX
+from app.config.database import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,6 +38,22 @@ async def list_predictions(
     include_deleted: bool = Query(False),
 ):
     return await get_predictions(sport=sport, limit=limit, include_deleted=include_deleted)
+
+
+@router.get("/groups")
+async def list_prediction_groups(
+    match_date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today in WAT"),
+):
+    from datetime import datetime
+    from app.utils.timezone import WAT
+
+    db = get_db()
+    target_date = match_date or datetime.now(WAT).strftime("%Y-%m-%d")
+    doc = await db.prediction_groups.find_one({"match_date": target_date}, {"_id": 0})
+
+    if not doc:
+        return {"match_date": target_date, "groups": [], "total_games": 0}
+    return doc
 
 
 @router.get("/validate")

@@ -143,12 +143,18 @@ async def get_today_fixtures():
                 "away_win_probability": pred.get("away_win_probability"),
                 "draw_probability":  pred.get("draw_probability"),
                 "confidence_score":  pred.get("confidence_score"),
+                "prediction_group_id": pred.get("prediction_group_id"),
+                "prediction_group_index": pred.get("prediction_group_index"),
+                "prediction_group_is_high_risk": pred.get("prediction_group_is_high_risk", False),
             })
+
+    groups_doc = await db.prediction_groups.find_one({"match_date": today}, {"_id": 0})
 
     return {
         "date":  today,
         "total": sum(len(v) for v in result.values()),
         "by_sport": result,
+        "groups": (groups_doc or {}).get("groups", []),
     }
 
 
