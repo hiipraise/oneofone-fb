@@ -62,7 +62,7 @@ function QuotaBar({ quota, loading }) {
     <div className="p-3 border-b border-brand-midgray">
       <div className="flex items-center justify-between mb-1.5">
         {/* Updated label — reflects Serper.dev */}
-        <p className="label">SEARCH QUOTA</p>
+        <p className="label">SERPER USAGE</p>
         <span className={`font-display text-xs tabular-nums ${textColor}`}>
           {quota.used}/{quota.budget}
         </span>

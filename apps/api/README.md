@@ -29,7 +29,7 @@ oneofone-backend/
       search.py                  Live web search endpoints
       chat.py                    AI chat endpoint
     services/
-      web_search_service.py      Live data fetcher (ESPN, SerpAPI, scraping)
+      web_search_service.py      Live data fetcher (ESPN, Serper, scraping)
       prediction_service.py      Orchestration: search + ML + persistence
       chat_service.py            Anthropic API integration + NLP
     ml/
@@ -132,12 +132,15 @@ Frontend: http://localhost:5173
 |---|---|---|
 | MONGODB_URI | MongoDB connection string | Yes |
 | MONGODB_DB | Database name | Yes |
-| SERPAPI_KEY | SerpAPI key for web search | Recommended |
+| SERPER_API_KEY | Serper.dev key for web search | Recommended |
+| SERPAPI_KEY | Legacy alias (backward compatible; ignored by search runtime) | Optional |
 | ANTHROPIC_API_KEY | Claude API for AI chat | Recommended |
 | ODDS_API_KEY | The Odds API for betting odds | Optional |
 | RAPID_API_KEY | RapidAPI for fixture data | Optional |
 
 The system functions without API keys using DuckDuckGo scraping and statistical prior-based prediction.
+
+Naming note: the primary service entry points are now `search_web` and `get_serper_usage`. Legacy wrappers `search_serpapi` and `get_serpapi_usage` remain available for one release window.
 
 ---
 

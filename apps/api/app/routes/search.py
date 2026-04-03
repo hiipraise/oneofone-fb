@@ -3,7 +3,7 @@ from fastapi import APIRouter, Query
 
 from app.config.api_contract import SEARCH_QUERY_MIN_LENGTH, SEARCH_QUERY_MAX_LENGTH
 from app.services.web_search_service import (
-    search_serpapi,
+    search_web,
     fetch_team_stats,
     fetch_recent_form,
     fetch_injury_report,
@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/")
 async def web_search(q: str = Query(..., min_length=SEARCH_QUERY_MIN_LENGTH, max_length=SEARCH_QUERY_MAX_LENGTH)):
-    results = search_serpapi(q, num_results=5)
+    results = search_web(q, num_results=5)
     return {"query": q, "results": results}
 
 

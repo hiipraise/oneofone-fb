@@ -33,9 +33,9 @@ function QuotaPanel({ quota, loading }) {
   if (!quota) {
     return (
       <div className="card p-5">
-        <p className="label mb-2">SEARCH QUOTA — SERPER.DEV</p>
+        <p className="label mb-2">SERPER SEARCH USAGE</p>
         <p className="font-display text-xs text-gray-600">
-          Quota data unavailable
+          Serper usage data unavailable
         </p>
       </div>
     );
@@ -62,7 +62,7 @@ function QuotaPanel({ quota, loading }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
         <div>
           {/* Updated: Serper.dev branding */}
-          <p className="label mb-0.5">SEARCH QUOTA — SERPER.DEV</p>
+          <p className="label mb-0.5">SERPER SEARCH USAGE</p>
           <p className="font-body text-xs text-gray-600">
             2,400 searches/month (free plan) · resets{" "}
             {quota.month ? `end of ${quota.month}` : "monthly"}
@@ -413,7 +413,7 @@ export default function MetricsPage() {
             MODEL METRICS
           </h1>
           <p className="font-body text-xs text-gray-600 mt-1">
-            Brier Score · Log Loss · Calibration · Accuracy · Serper Quota · ML
+            Brier Score · Log Loss · Calibration · Accuracy · Serper Usage · ML
             Ensemble Weights
           </p>
         </div>

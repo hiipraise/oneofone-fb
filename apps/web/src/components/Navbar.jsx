@@ -91,10 +91,10 @@ export default function Navbar({ toggleSidebar }) {
                   ? 'border-brand-red text-brand-redlight bg-brand-reddark hover:bg-red-900'
                   : 'border-yellow-700 text-yellow-400 bg-yellow-900/30 hover:bg-yellow-900/50'
               }`}
-              title={`Search quota: ${quota.used}/${quota.budget} used`}
+              title={`Serper usage: ${quota.used}/${quota.budget} used`}
             >
               <span>{quotaCritical ? '⚠' : '▲'}</span>
-              <span>QUOTA {quotaPct}%</span>
+              <span>SERPER {quotaPct}%</span>
             </Link>
           )}
 
