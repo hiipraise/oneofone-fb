@@ -84,7 +84,13 @@ function DeleteButton({ matchId, onDeleted }) {
   )
 }
 
-export default function PredictionTable({ predictions = [], resolvedMatches = {}, showSport = true, onRefetch }) {
+export default function PredictionTable({
+  predictions = [],
+  resolvedMatches = {},
+  showSport = true,
+  onRefetch,
+  engineStatusBySport = null,
+}) {
   const [sortKey, setSortKey] = useState('timestamp')
   const [sortDir, setSortDir] = useState('desc')
   const [localPreds, setLocalPreds] = useState(null)
@@ -168,6 +174,15 @@ export default function PredictionTable({ predictions = [], resolvedMatches = {}
               const isAway = pred.predicted_outcome === 'away_win'
               const resolvedMatch = resolvedMatches[pred.match_id]
               const status = resolutionStatus(pred, resolvedMatch)
+              const normalizedSport = (pred.sport || '').toLowerCase()
+              const engineStatusForSport =
+                engineStatusBySport && normalizedSport
+                  ? engineStatusBySport[normalizedSport]
+                  : null
+              const isEngineActive =
+                typeof engineStatusForSport === 'boolean'
+                  ? engineStatusForSport
+                  : (pred.is_trained_model !== false)
 
               return (
                 <React.Fragment key={pred.match_id || `${startIndex + i}`}>
@@ -252,9 +267,9 @@ export default function PredictionTable({ predictions = [], resolvedMatches = {}
                           {pred.model_version && (
                             <span className="font-display text-xs text-gray-600">
                               Model v{pred.model_version}
-                              {pred.is_trained_model === false && (
-                                <span className="ml-2 text-yellow-600">PRIOR</span>
-                              )}
+                              <span className={`ml-2 ${isEngineActive ? 'text-brand-greenlight' : 'text-yellow-600'}`}>
+                                {isEngineActive ? 'ML ACTIVE' : 'PRIOR MODE'}
+                              </span>
                             </span>
                           )}
                           {(pred.confidence_interval_low != null) && (

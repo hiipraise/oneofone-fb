@@ -11,10 +11,15 @@ import CalibrationChart from '../charts/CalibrationChart'
 import { formatWatDate } from '../utils/wat'
 
 export default function Dashboard() {
-  const { data: predictions, loading: predsLoading } = usePredictions(null, 20)
+  const { data: predictions, loading: predsLoading } = usePredictions(null, 20, 15000)
   const { data: summary, loading: summaryLoading } = useMetricsSummary()
   const { data: metricsHistory } = useMetricsHistory(30)
-  const { data: results } = useResults(100)
+  const { data: results } = useResults(100, 15000)
+
+  const resolvedMatches = results.reduce((map, result) => {
+    if (result?.match_id) map[result.match_id] = result
+    return map
+  }, {})
 
   const recentPredictions = predictions.slice(0, 3)
 
@@ -73,7 +78,12 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {recentPredictions.map((pred, i) => (
-              <PredictionCard key={pred.match_id || i} prediction={pred} />
+              <PredictionCard
+                key={pred.match_id || i}
+                prediction={pred}
+                resolvedMatch={resolvedMatches[pred.match_id]}
+                engineStatusBySport={summary?.is_trained || null}
+              />
             ))}
             {!recentPredictions.length && (
               <div className="col-span-3 card p-8 text-center">

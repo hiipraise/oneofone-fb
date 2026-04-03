@@ -82,7 +82,7 @@ function ResolutionBadge({ prediction, resolvedMatch }) {
   )
 }
 
-export default function PredictionCard({ prediction, resolvedMatch }) {
+export default function PredictionCard({ prediction, resolvedMatch, engineStatusBySport = null }) {
   const [expanded, setExpanded] = useState(false)
 
   if (!prediction) return null
@@ -97,6 +97,16 @@ export default function PredictionCard({ prediction, resolvedMatch }) {
     extended_markets,
     is_trained_model,
   } = prediction
+
+  const normalizedSport = (sport || '').toLowerCase()
+  const engineStatusForSport =
+    engineStatusBySport && normalizedSport
+      ? engineStatusBySport[normalizedSport]
+      : null
+  const isEngineActive =
+    typeof engineStatusForSport === 'boolean'
+      ? engineStatusForSport
+      : (is_trained_model !== false)
 
   const bttsData = extended_markets?.btts ?? null
   const normalizedDataSources = (data_sources || []).filter(Boolean).map((src) => {
@@ -145,9 +155,9 @@ export default function PredictionCard({ prediction, resolvedMatch }) {
             {sport && <span className="tag-gray">{sport.toUpperCase()}</span>}
             {league && <span className="tag-gray truncate max-w-[120px]">{league}</span>}
             <ResolutionBadge prediction={prediction} resolvedMatch={resolvedMatch} />
-            {!is_trained_model && (
-              <span className="tag-gray text-yellow-600">PRIOR</span>
-            )}
+            <span className={`tag-gray ${isEngineActive ? 'text-brand-greenlight' : 'text-yellow-600'}`}>
+              {isEngineActive ? 'ML ACTIVE' : 'PRIOR MODE'}
+            </span>
           </div>
           <p className="font-display text-sm text-white leading-snug">
             {home_team}
