@@ -18,6 +18,7 @@ Learning update isolation
 """
 import asyncio
 import logging
+import math
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -64,6 +65,93 @@ def _is_mongo_dns_resolution_error(exc: Exception) -> bool:
 def _generate_match_id(home: str, away: str, sport: str, date: str = "") -> str:
     raw = f"{home.lower()}-{away.lower()}-{sport.lower()}-{date}"
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, raw))
+
+
+def _build_group_sizes(total_games: int, preferred_size: int = 3) -> List[int]:
+    """
+    Split a slate into risk groups while keeping every group size >= 2.
+    For 2-3 games, this returns a single group to respect the min-size rule.
+    """
+    if total_games <= 0:
+        return []
+    if total_games <= 3:
+        return [total_games]
+
+    group_count = max(2, round(total_games / max(preferred_size, 2)))
+    while group_count > 1 and (total_games // group_count) < 2:
+        group_count -= 1
+
+    base = total_games // group_count
+    rem = total_games % group_count
+    return [base + (1 if i < rem else 0) for i in range(group_count)]
+
+
+def _risk_score_from_prediction(doc: Dict[str, Any]) -> float:
+    confidence = float(doc.get("confidence_score") or 0.0)
+    confidence = max(0.0, min(1.0, confidence))
+    return 1.0 - confidence
+
+
+async def _assign_prediction_groups_for_date(db, match_date: str) -> Dict[str, Any]:
+    """
+    Assign risk-ranked groups for all predictions on a date.
+    Final group contains the highest-risk (most likely to miss) games.
+    """
+    preds: List[Dict[str, Any]] = []
+    async for pred in db.predictions.find(
+        {"match_date": match_date, "deleted_at": None},
+        {"_id": 0, "match_id": 1, "confidence_score": 1, "sport": 1, "home_team": 1, "away_team": 1},
+    ):
+        preds.append(pred)
+
+    if len(preds) < 2:
+        return {"groups": 0, "games": len(preds)}
+
+    ranked = sorted(preds, key=_risk_score_from_prediction)
+    sizes = _build_group_sizes(len(ranked))
+
+    cursor = 0
+    group_docs: List[Dict[str, Any]] = []
+    for i, size in enumerate(sizes, start=1):
+        chunk = ranked[cursor: cursor + size]
+        cursor += size
+        group_id = f"{match_date}-G{i}"
+        games = []
+        for p in chunk:
+            games.append({
+                "match_id": p["match_id"],
+                "sport": p.get("sport"),
+                "home_team": p.get("home_team"),
+                "away_team": p.get("away_team"),
+                "risk_score": round(_risk_score_from_prediction(p), 6),
+            })
+            await db.predictions.update_one(
+                {"match_id": p["match_id"]},
+                {"$set": {
+                    "prediction_group_id": group_id,
+                    "prediction_group_index": i,
+                    "prediction_group_size": size,
+                    "prediction_group_is_high_risk": i == len(sizes),
+                }},
+            )
+        group_docs.append({
+            "group_id": group_id,
+            "group_index": i,
+            "is_high_risk_group": i == len(sizes),
+            "games": games,
+        })
+
+    await db.prediction_groups.replace_one(
+        {"match_date": match_date},
+        {
+            "match_date": match_date,
+            "updated_at": now_wat().isoformat(),
+            "total_games": len(ranked),
+            "groups": group_docs,
+        },
+        upsert=True,
+    )
+    return {"groups": len(group_docs), "games": len(ranked)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,6 +270,11 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
     }
     await db.feature_snapshots.replace_one({"match_id": match_id}, snapshot, upsert=True)
 
+    try:
+        await _assign_prediction_groups_for_date(db, match_date)
+    except Exception as e:
+        logger.warning(f"Could not assign prediction groups for {match_date}: {e}")
+
     await log_system_event("prediction_created", f"Prediction generated for {match_id}", "INFO")
     return output
 
@@ -268,6 +361,7 @@ async def save_actual_result(
             "league": 1,
             "predicted_outcome": 1,
             "confidence_score": 1,
+            "prediction_group_id": 1,
         },
     )
 
@@ -291,6 +385,53 @@ async def save_actual_result(
         })
 
     await db.actual_results.replace_one({"match_id": match_id}, doc, upsert=True)
+
+    # Group-level resolution: when all games in a group are resolved, stamp group result.
+    group_id = (prediction or {}).get("prediction_group_id")
+    if group_id:
+        group_preds = []
+        async for gp in db.predictions.find(
+            {"prediction_group_id": group_id, "deleted_at": None},
+            {"_id": 0, "match_id": 1, "predicted_outcome": 1},
+        ):
+            group_preds.append(gp)
+
+        group_match_ids = [g["match_id"] for g in group_preds]
+        resolved = []
+        async for ar in db.actual_results.find(
+            {"match_id": {"$in": group_match_ids}},
+            {"_id": 0, "match_id": 1, "actual_outcome": 1},
+        ):
+            resolved.append(ar)
+
+        if len(group_match_ids) >= 2 and len(resolved) == len(group_match_ids):
+            resolved_map = {r["match_id"]: r.get("actual_outcome") for r in resolved}
+            hits = sum(
+                1 for g in group_preds
+                if g.get("predicted_outcome") and resolved_map.get(g["match_id"]) == g.get("predicted_outcome")
+            )
+            hit_rate = hits / len(group_match_ids) if group_match_ids else 0.0
+            group_status = "won" if hits == len(group_match_ids) else "lost"
+
+            await db.actual_results.update_many(
+                {"match_id": {"$in": group_match_ids}},
+                {"$set": {
+                    "group_id": group_id,
+                    "group_resolved": True,
+                    "group_status": group_status,
+                    "group_hit_rate": round(hit_rate, 4),
+                    "group_resolved_at": now_wat().isoformat(),
+                }},
+            )
+        else:
+            await db.actual_results.update_one(
+                {"match_id": match_id},
+                {"$set": {
+                    "group_id": group_id,
+                    "group_resolved": False,
+                    "group_status": "pending",
+                }},
+            )
 
     # Launch learning in a daemon thread — never blocks the HTTP response
     t = threading.Thread(target=_run_learning_in_thread, daemon=True)
@@ -368,8 +509,14 @@ async def _trigger_learning_update_impl(db) -> None:
     """Core ML learning logic. Receives db handle directly — no get_db() call."""
 
     actual_results: Dict[str, str] = {}
+    group_statuses: Dict[str, str] = {}
+    group_hit_rates: List[float] = []
     async for doc in db.actual_results.find({}):
         actual_results[doc["match_id"]] = doc.get("actual_outcome", "")
+        if doc.get("group_status"):
+            group_statuses[doc["match_id"]] = doc.get("group_status")
+        if isinstance(doc.get("group_hit_rate"), (int, float)):
+            group_hit_rates.append(float(doc["group_hit_rate"]))
 
     if not actual_results:
         logger.info("Learning: no resolved results, skipping")
@@ -396,6 +543,7 @@ async def _trigger_learning_update_impl(db) -> None:
             if snap else pred.get("features_used", {})
         )
         sport_records.setdefault(sport, []).append({
+            "match_id":             mid,
             "features":             features,
             "actual_outcome":       actual,
             "predicted_outcome":    pred.get("predicted_outcome"),
@@ -408,6 +556,10 @@ async def _trigger_learning_update_impl(db) -> None:
             retrain_result = prediction_engine.retrain(records, sport=sport)
             metrics        = prediction_engine.evaluate(records, sport=sport)
             if metrics:
+                group_lost_count = sum(
+                    1 for rec in records
+                    if group_statuses.get(rec.get("match_id", "")) == "lost"
+                )
                 await db.model_metrics.insert_one({
                     "model_version":  prediction_engine.model_version,
                     "sport":          sport,
@@ -417,6 +569,8 @@ async def _trigger_learning_update_impl(db) -> None:
                         "accuracy", "total_predictions", "ml_weight",
                         "n_training_samples",
                     )},
+                    "group_lost_samples": group_lost_count,
+                    "avg_group_hit_rate": round(sum(group_hit_rates) / len(group_hit_rates), 4) if group_hit_rates else None,
                     "retrain_result": retrain_result,
                 })
                 logger.info(f"[{sport}] Learning complete: {metrics}")

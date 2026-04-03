@@ -45,6 +45,23 @@ function outcomeTag(outcome) {
   return <span className="tag-gray text-xs">—</span>;
 }
 
+function groupTag(row) {
+  const idx = row?.prediction_group_index;
+  if (!idx) return <span className="tag-gray text-xs">UNGROUPED</span>;
+  if (row?.prediction_group_is_high_risk) {
+    return (
+      <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
+        G{idx} · HIGH RISK
+      </span>
+    );
+  }
+  return (
+    <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-yellow-300 bg-yellow-900/20 border-yellow-800">
+      G{idx}
+    </span>
+  );
+}
+
 // ── Status card ───────────────────────────────────────────────────────────────
 function StatusCard({ status, loading }) {
   if (loading) {
@@ -169,6 +186,7 @@ function TodayTable({ fixtures, sport, loading }) {
                 "MATCH",
                 "LEAGUE",
                 "PREDICTION",
+                "GROUP",
                 "HOME%",
                 "DRAW%",
                 "AWAY%",
@@ -209,6 +227,9 @@ function TodayTable({ fixtures, sport, loading }) {
                     {outcomeTag(row.predicted_outcome)}
                   </td>
                   <td className="px-4 py-3">
+                    {groupTag(row)}
+                  </td>
+                  <td className="px-4 py-3">
                     <span
                       className={`font-display text-xs tabular-nums ${isHome ? "text-brand-greenlight" : "text-gray-400"}`}
                     >
@@ -245,6 +266,67 @@ function TodayTable({ fixtures, sport, loading }) {
         onPageChange={setPage}
         itemLabel="FIXTURES TODAY"
       />
+    </div>
+  );
+}
+
+function PredictionGroupsPanel({ fixtures, loading }) {
+  const groups = fixtures?.groups ?? [];
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {[...Array(2)].map((_, i) => (
+          <div key={i} className="card p-4 animate-pulse">
+            <div className="h-3 w-24 bg-brand-midgray rounded mb-3" />
+            <div className="h-2 w-full bg-brand-midgray rounded mb-1.5" />
+            <div className="h-2 w-4/5 bg-brand-midgray rounded" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (!groups.length) {
+    return (
+      <div className="card p-4">
+        <p className="font-display text-xs text-gray-600">NO GROUPED SLATE AVAILABLE YET.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {groups.map((group) => (
+        <div
+          key={group.group_id}
+          className={`card p-4 border ${
+            group.is_high_risk_group
+              ? "border-brand-red bg-brand-reddark"
+              : "border-brand-midgray"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-display text-sm text-white">{group.group_id}</p>
+            <span
+              className={`font-display text-[10px] px-2 py-0.5 rounded-sm border ${
+                group.is_high_risk_group
+                  ? "text-brand-redlight border-brand-red bg-brand-reddark"
+                  : "text-yellow-300 border-yellow-800 bg-yellow-900/20"
+              }`}
+            >
+              {group.is_high_risk_group ? "MOST LIKELY MISSES" : "LOWER RISK"}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {(group.games || []).map((g) => (
+              <p key={g.match_id} className="font-display text-xs text-gray-300">
+                {g.home_team} <span className="text-gray-600">vs</span> {g.away_team}
+              </p>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -668,6 +750,16 @@ export default function SchedulerPage() {
           sport={sport}
           loading={fixturesLoading}
         />
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <p className="label">PREDICTION GROUPS (ALL SPORTS)</p>
+          <span className="font-display text-xs text-gray-700">
+            {(fixtures?.groups || []).length} groups
+          </span>
+        </div>
+        <PredictionGroupsPanel fixtures={fixtures} loading={fixturesLoading} />
       </section>
 
       {/* Config info */}
