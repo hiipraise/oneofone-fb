@@ -6,6 +6,7 @@ import ModelStatsPanel from '../components/ModelStatsPanel'
 import PredictionCard from '../components/PredictionCard'
 import PerformanceChart from '../charts/PerformanceChart'
 import ProbabilityDistributionChart from '../charts/ProbabilityDistributionChart'
+import PerformanceTrendChart from '../charts/PerformanceTrendChart'
 import CalibrationChart from '../charts/CalibrationChart'
 
 export default function Dashboard() {
@@ -40,6 +41,10 @@ export default function Dashboard() {
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
         <PerformanceChart metricsHistory={metricsHistory} />
         <ProbabilityDistributionChart predictions={predictions} />
+      </section>
+
+      <section className="mb-6">
+        <PerformanceTrendChart metricsHistory={metricsHistory} />
       </section>
 
       <section className="mb-6">
