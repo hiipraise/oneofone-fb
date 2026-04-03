@@ -1,5 +1,6 @@
 // src/components/PredictionCard.jsx
 import React, { useState } from 'react'
+import { formatWatDate } from '../utils/wat'
 
 // ─── Probability bar ─────────────────────────────────────────────────────────
 function ProbBar({ label, value, isWinner }) {
@@ -131,7 +132,7 @@ export default function PredictionCard({ prediction, resolvedMatch }) {
 
   const dateLabel =
     match_date
-    || (timestamp && new Date(timestamp).toLocaleDateString())
+    || (timestamp && formatWatDate(timestamp))
     || '—'
 
   return (

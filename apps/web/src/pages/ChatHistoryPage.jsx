@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getSessionHistory, deleteSession, restoreSession } from '../services/api'
 import PaginationControls from '../components/PaginationControls'
+import { formatWatTime } from '../utils/wat'
 
 async function fetchAllSessions(includeDeleted = false) {
   const { default: api } = await import('../services/api')
@@ -175,7 +176,7 @@ function MessagePreview({ messages }) {
                 </span>
                 <span className="font-display text-xs text-gray-700">
                   {msg.timestamp
-                    ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    ? formatWatTime(msg.timestamp)
                     : ''}
                 </span>
               </div>

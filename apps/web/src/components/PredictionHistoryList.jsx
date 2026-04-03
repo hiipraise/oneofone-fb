@@ -1,5 +1,6 @@
 // src/components/PredictionHistoryList.jsx
 import React from "react";
+import { formatWatDate } from "../utils/wat";
 
 export default function PredictionHistoryList({ predictions = [], loading }) {
   if (loading) {
@@ -59,7 +60,7 @@ export default function PredictionHistoryList({ predictions = [], loading }) {
                 <span className="font-display text-xs text-gray-600">
                   {pred.match_date ||
                     (pred.timestamp &&
-                      new Date(pred.timestamp).toLocaleDateString())}
+                      formatWatDate(pred.timestamp))}
                 </span>
               </div>
             </div>

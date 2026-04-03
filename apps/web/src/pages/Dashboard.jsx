@@ -8,6 +8,7 @@ import PerformanceChart from '../charts/PerformanceChart'
 import ProbabilityDistributionChart from '../charts/ProbabilityDistributionChart'
 import PerformanceTrendChart from '../charts/PerformanceTrendChart'
 import CalibrationChart from '../charts/CalibrationChart'
+import { formatWatDate } from '../utils/wat'
 
 export default function Dashboard() {
   const { data: predictions, loading: predsLoading } = usePredictions(null, 20)
@@ -23,7 +24,7 @@ export default function Dashboard() {
         <div>
           <h1 className="font-display text-xl text-white tracking-wide">SYSTEM DASHBOARD</h1>
           <p className="font-body text-xs text-gray-600 mt-1">
-            Real-time probabilistic sports prediction — {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            Real-time probabilistic sports prediction — {formatWatDate(new Date(), 'en-US')} (WAT)
           </p>
         </div>
         <Link to="/predict" className="btn-primary">

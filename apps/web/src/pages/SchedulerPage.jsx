@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import PaginationControls from "../components/PaginationControls";
 import { triggerResolution } from "../services/api";
+import { formatWatDateTime } from "../utils/wat";
 
 const SPORTS = ["soccer", "basketball"];
 const SPORT_DOTS = {
@@ -29,14 +30,7 @@ function timeAgo(ts) {
 function formatTime(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "Africa/Lagos",
-      timeZoneName: "short",
-    });
+    return formatWatDateTime(iso);
   } catch {
     return iso;
   }
