@@ -198,8 +198,13 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
                         f"(>{_PREDICTION_TTL_HOURS}h) — regenerating"
                     )
             except Exception as e:
-                logger.warning(f"Could not parse prediction timestamp [{match_id}]: {e}")
-                is_fresh = True
+                logger.warning(
+                    "Could not parse prediction timestamp for match_id=%s raw_timestamp=%r: %s",
+                    match_id,
+                    ts,
+                    e,
+                )
+                is_fresh = False
 
         if is_fresh:
             existing.pop("_id", None)
