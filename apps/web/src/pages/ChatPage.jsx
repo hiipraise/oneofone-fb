@@ -5,6 +5,7 @@ import { sendChat, getSessionHistory, createSession, deleteSession } from '../se
 import PredictionCard from '../components/PredictionCard'
 import { useApiContract } from '../hooks/useApiContract'
 import { SPORT_LABELS } from '../config/apiContract'
+import { formatWatTime } from '../utils/wat'
 
 const SESSION_KEY = 'oneofone_session_id'
 
@@ -36,7 +37,7 @@ function Message({ msg }) {
           </span>
           {msg.timestamp && (
             <span className="font-display text-xs text-gray-700">
-              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {formatWatTime(msg.timestamp)}
             </span>
           )}
         </div>

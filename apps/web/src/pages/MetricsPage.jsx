@@ -10,6 +10,7 @@ import PaginationControls from "../components/PaginationControls";
 import { triggerLearning } from "../services/api";
 import ConfidenceHistoryChart from "../charts/ConfidenceHistoryChart";
 import SportPerformanceChart from "../charts/SportPerformanceChart";
+import { formatWatDate } from "../utils/wat";
 
 const SPORT_DOTS = {
   soccer: "bg-brand-green",
@@ -595,7 +596,7 @@ export default function MetricsPage() {
                         className="border-b border-brand-midgray hover:bg-brand-gray transition-colors"
                       >
                         <td className="px-4 py-3 font-display text-xs text-gray-500 whitespace-nowrap">
-                          {new Date(m.date).toLocaleDateString()}
+                          {formatWatDate(m.date)}
                         </td>
                         <td className="px-4 py-3 font-display text-xs text-gray-400">
                           v{m.model_version}

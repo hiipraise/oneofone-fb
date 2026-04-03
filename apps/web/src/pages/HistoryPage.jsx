@@ -5,11 +5,12 @@ import { usePredictions, useResults } from '../hooks/useData'
 import PredictionTable from '../components/PredictionTable'
 import PredictionCard from '../components/PredictionCard'
 import { submitResult } from '../services/api'
+import { watTodayISO } from '../utils/wat'
 
 // Aligned with backend SportType enum
 const SPORTS = ['all', 'soccer', 'basketball']
 
-const todayISO = () => new Date().toISOString().slice(0, 10)
+const todayISO = () => watTodayISO()
 
 export default function HistoryPage() {
   const [searchParams] = useSearchParams()

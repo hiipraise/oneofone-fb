@@ -1,6 +1,7 @@
 // src/components/PredictionTable.jsx
 import React, { useState } from 'react'
 import { deletePrediction } from '../services/api'
+import { formatWatDate } from '../utils/wat'
 
 function outcomeTag(outcome) {
   if (outcome === 'home_win') return <span className="tag-green">HOME WIN</span>
@@ -229,7 +230,7 @@ export default function PredictionTable({ predictions = [], resolvedMatches = {}
                     <td className="px-4 py-3">
                       <span className="font-display text-xs text-gray-600 whitespace-nowrap">
                         {pred.timestamp
-                          ? new Date(pred.timestamp).toLocaleDateString()
+                          ? formatWatDate(pred.timestamp)
                           : pred.match_date || '—'}
                       </span>
                     </td>
