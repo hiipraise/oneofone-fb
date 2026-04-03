@@ -43,6 +43,50 @@ When presenting predictions:
 
 Response style: concise, analytical, data-driven. No filler."""
 
+FOOTBALL_TODAY_ENGINE_PROMPT = """You are a professional football prediction engine.
+
+Your task is to generate decisive, high-confidence predictions ONLY for matches scheduled TODAY using the most recent and reliable data available.
+
+STRICT RULES:
+1. Always detect today's date from the provided runtime date and only return matches scheduled for that date.
+2. Never invent matches, leagues, kickoff times, or predictions.
+3. If no matches are found, return exactly: No matches found for today.
+4. If real match data is unavailable, return exactly: Live match data unavailable.
+5. Use clean plain text only (no markdown, bullets, emojis, or symbols).
+6. Be decisive and return only one strongest outcome per market.
+7. Keep reason to maximum 2 short lines.
+8. Keep predictions logically consistent:
+   - If BTTS = No, score cannot be 1-1, 2-2, etc.
+   - If Over 2.5, score must have total goals >= 3.
+   - If Under 2.5, score must have total goals <= 2.
+9. If user does not specify match count, return up to 5 matches.
+
+Output template (exact section names):
+Match: [Team A vs Team B]
+League: [League Name]
+Kickoff: [HH:MM]
+
+Prediction Summary:
+Winner: Home / Draw / Away
+
+Goals:
+Over 2.5 / Under 2.5
+
+BTTS:
+Yes / No
+
+Correct Score:
+X-X
+
+Corners:
+Over 8.5 / Under 8.5
+
+Confidence:
+Low / Medium / High
+
+Reason:
+Max 2 short lines with strongest signals only."""
+
 _SPORT_KEYWORDS: Dict[str, List[str]] = {
     "soccer": [
         "soccer", "football", "premier league", "la liga", "champions league",
@@ -79,6 +123,54 @@ def parse_teams(message: str) -> Optional[Dict[str, str]]:
                 "sport": sport,
             }
     return None
+
+
+def _is_football_today_request(message: str) -> bool:
+    ml = message.lower()
+    football_terms = ["football", "soccer", "epl", "premier league", "la liga", "serie a"]
+    today_terms = ["today", "scheduled today", "matches today", "fixtures today"]
+    prediction_terms = ["predict", "prediction", "winner", "odds", "btss", "btts", "correct score"]
+    return (
+        any(t in ml for t in football_terms)
+        and any(t in ml for t in today_terms)
+        and any(t in ml for t in prediction_terms)
+    )
+
+
+def _resolve_reference_date(message: str, now_utc) -> Dict[str, str]:
+    """
+    Resolve common relative-date language to a concrete UTC date anchor.
+    This keeps search + prompting time-aware without hardcoding years.
+    """
+    ml = message.lower()
+    target_date = now_utc
+    label = "today"
+
+    if "yesterday" in ml:
+        target_date = now_utc.fromordinal(now_utc.toordinal() - 1)
+        label = "yesterday"
+    elif "tomorrow" in ml:
+        target_date = now_utc.fromordinal(now_utc.toordinal() + 1)
+        label = "tomorrow"
+    elif "next year" in ml:
+        target_date = now_utc.replace(year=now_utc.year + 1)
+        label = "next year"
+    elif "last year" in ml or "previous year" in ml:
+        target_date = now_utc.replace(year=now_utc.year - 1)
+        label = "last year"
+    elif "years ago" in ml:
+        m = _re.search(r"(\d+)\s+years?\s+ago", ml)
+        years_back = int(m.group(1)) if m else 1
+        target_date = now_utc.replace(year=now_utc.year - years_back)
+        label = f"{years_back} years ago"
+    elif "in " in ml and " year" in ml:
+        m = _re.search(r"in\s+(\d+)\s+years?", ml)
+        if m:
+            years_forward = int(m.group(1))
+            target_date = now_utc.replace(year=now_utc.year + years_forward)
+            label = f"in {years_forward} years"
+
+    return {"label": label, "date_iso": target_date.isoformat()}
 
 
 async def call_groq(messages: List[Dict], system: str) -> str:
@@ -121,8 +213,14 @@ async def process_chat(request) -> dict:
     usage = get_serpapi_usage()
     search_context = ""
     search_sources: List[str] = []
+    today_utc = datetime.now(timezone.utc).date()
+    reference_date = _resolve_reference_date(user_message, today_utc)
+    date_anchor = reference_date["date_iso"]
     if usage["remaining"] > 5:
-        search_results = search_serpapi(f"{user_message} sports 2025", num_results=3)
+        search_results = search_serpapi(
+            f"{user_message} sports fixtures {date_anchor}",
+            num_results=3,
+        )
         search_context = "\n".join(
             f"- {r.get('title', '')}: {r.get('snippet', '')}"
             for r in search_results if r.get("snippet")
@@ -196,11 +294,32 @@ async def process_chat(request) -> dict:
 
     # ── Build LLM prompt ─────────────────────────────────────────────────────
     memory_ctx = await memory_service.build_memory_context(session_id)
-    full_system = SYSTEM_PROMPT
+    football_today_mode = _is_football_today_request(user_message)
+    full_system = FOOTBALL_TODAY_ENGINE_PROMPT if football_today_mode else SYSTEM_PROMPT
+    full_system += f"\n\nRuntime date (UTC): {today_utc.isoformat()}"
+    full_system += (
+        f"\nResolved time reference: '{reference_date['label']}' => {reference_date['date_iso']} (UTC)."
+    )
+    full_system += (
+        "\nAlways interpret relative dates dynamically from runtime context "
+        "(yesterday/today/tomorrow/years ago/future years)."
+    )
     if memory_ctx:
         full_system += f"\n\n{memory_ctx}"
     if search_context:
         full_system += f"\n\nReal-time context:\n{search_context}"
+    elif football_today_mode:
+        # Deterministic fallback required by strict response contract.
+        ai_response = "Live match data unavailable."
+        await memory_service.append_message(session_id, "user", user_message, prediction_meta or None)
+        await memory_service.append_message(session_id, "assistant", ai_response, prediction_meta or None)
+        return ChatResponse(
+            session_id=session_id,
+            response=ai_response,
+            prediction=prediction_output,
+            sources=search_sources,
+            timestamp=datetime.now(WAT),
+        )
 
     # Append quota info to help LLM acknowledge data gaps
     full_system += f"\n\nSerpAPI budget: {usage['used']}/{usage['budget']} searches used this month."
