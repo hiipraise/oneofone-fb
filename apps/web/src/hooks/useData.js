@@ -135,7 +135,7 @@ export function useResults(limit = 50, refreshMs = 0) {
 }
 
 /**
- * SerpAPI monthly quota — calls GET /api/metrics/quota
+ * Serper monthly usage — calls GET /api/metrics/quota
  * Returns: { month, used, budget, remaining }
  */
 export function useQuota() {

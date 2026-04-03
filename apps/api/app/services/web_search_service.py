@@ -139,11 +139,8 @@ def _quota_increment() -> None:
     logger.debug(f"Serper quota: {data['count']}/{MONTHLY_BUDGET} this month")
 
 
-def get_serpapi_usage() -> Dict:
-    """
-    Backward-compatible name kept so chat_service / metrics routes don't break.
-    Now reflects Serper.dev usage.
-    """
+def get_serper_usage() -> Dict:
+    """Return current Serper.dev monthly usage snapshot."""
     data = _quota_load()
     current_month = now_wat().strftime("%Y-%m")
     if data.get("month") != current_month:
@@ -157,6 +154,11 @@ def get_serpapi_usage() -> Dict:
         "budget":    MONTHLY_BUDGET,
         "remaining": max(0, MONTHLY_BUDGET - data["count"]),
     }
+
+
+def get_serpapi_usage() -> Dict:
+    """Backward-compatible wrapper. Use get_serper_usage()."""
+    return get_serper_usage()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,9 +278,9 @@ def _serper_search(query: str, num_results: int = 5) -> List[Dict]:
 # Public search entry point  (replaces search_serpapi — same signature)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def search_serpapi(query: str, num_results: int = 5) -> List[Dict]:
+def search_web(query: str, num_results: int = 5) -> List[Dict]:
     """
-    Backward-compatible name kept so all callers work without changes.
+    Primary web-search entry point.
 
     Resolution order:
       1. Memory/disk cache     — free, instant
@@ -305,6 +307,12 @@ def search_serpapi(query: str, num_results: int = 5) -> List[Dict]:
         _set_cache(ck, results, ttl=CACHE_TTL_MEDIUM)
 
     return results
+
+
+# Backward-compatible wrapper for one release window.
+def search_serpapi(query: str, num_results: int = 5) -> List[Dict]:
+    """Deprecated wrapper. Use search_web()."""
+    return search_web(query=query, num_results=num_results)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -545,7 +553,7 @@ def _fetch_combined_team_data(team_name: str, sport: str) -> Dict[str, Any]:
     }.get(sport, "form results statistics")
     query = f"{team_name} {sport_terms} injuries squad availability 2025"
 
-    snippets = search_serpapi(query, num_results=6)
+    snippets = search_web(query, num_results=6)
     text = " ".join(
         (r.get("snippet") or "") + " " + (r.get("title") or "")
         for r in snippets
@@ -613,7 +621,7 @@ def _fetch_combined_h2h_venue(home_team: str, away_team: str, sport: str) -> Dic
         return cached
 
     query   = f"{home_team} vs {away_team} head to head history home record {sport}"
-    results = search_serpapi(query, num_results=5)
+    results = search_web(query, num_results=5)
     text    = " ".join(r.get("snippet") or "" for r in results).lower()
 
     hk = home_team.lower().split()[0]

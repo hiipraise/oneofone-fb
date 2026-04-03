@@ -156,30 +156,31 @@ async def get_confidence_history(days: int = Query(30, ge=7, le=180)):
 
 
 @router.get("/quota")
-async def get_serpapi_quota():
+async def get_serper_quota():
     from app.services.quota_service import get_persisted_quota
     return await get_persisted_quota()
 
 
 @router.post("/quota/increment")
 async def increment_quota(calls: int = 1):
-    from app.services.web_search_service import get_serpapi_usage
+    from app.services.web_search_service import get_serper_usage
     db = get_db()
 
-    live = get_serpapi_usage()
+    live = get_serper_usage()
     month_key = live.get("month", "unknown")
     doc_id = f"quota:{month_key}"
     budget = int(live.get("budget", 200))
 
-    existing = await db.serpapi_quota.find_one({"_id": doc_id})
+    existing_primary = await db.serper_quota.find_one({"_id": doc_id})
+    existing_legacy = await db.serpapi_quota.find_one({"_id": doc_id})
+    existing = existing_primary or existing_legacy
     current_used = existing.get("used", 0) if existing else 0
     new_used = max(current_used, int(live.get("used", 0))) + calls
     remaining = max(budget - new_used, 0)
 
-    await db.serpapi_quota.replace_one(
-        {"_id": doc_id},
-        {"_id": doc_id, "month": month_key, "used": new_used,
-         "budget": budget, "remaining": remaining},
-        upsert=True,
-    )
+    payload = {"_id": doc_id, "month": month_key, "used": new_used,
+         "budget": budget, "remaining": remaining}
+
+    await db.serper_quota.replace_one({"_id": doc_id}, payload, upsert=True)
+    await db.serpapi_quota.replace_one({"_id": doc_id}, payload, upsert=True)
     return {"used": new_used, "budget": budget, "remaining": remaining}
