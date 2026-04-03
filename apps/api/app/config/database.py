@@ -69,14 +69,21 @@ async def create_indexes():
     active_db = get_db()
     if active_db is None:
         raise RuntimeError("Database connection has not been established")
+    # predictions: frequent lookup by match_id, recency sorting, and date/sport filtering.
     await active_db.predictions.create_index([("match_id", ASCENDING)], unique=True)
-    await active_db.predictions.create_index([("date", DESCENDING)])
+    await active_db.predictions.create_index([("timestamp", DESCENDING)])
+    await active_db.predictions.create_index([("match_date", ASCENDING)])
     await active_db.predictions.create_index([("sport", ASCENDING)])
-    await active_db.predictions.create_index([("model_version", ASCENDING)])
+    await active_db.predictions.create_index([("deleted_at", ASCENDING), ("timestamp", DESCENDING)])
+    await active_db.predictions.create_index([("match_date", ASCENDING), ("deleted_at", ASCENDING)])
+    await active_db.predictions.create_index([("prediction_group_id", ASCENDING), ("deleted_at", ASCENDING)])
 
+    # actual_results: list endpoint sorts by recorded_at and writes/read by match_id/date.
     await active_db.actual_results.create_index([("match_id", ASCENDING)], unique=True)
-    await active_db.actual_results.create_index([("date", DESCENDING)])
+    await active_db.actual_results.create_index([("recorded_at", DESCENDING)])
+    await active_db.actual_results.create_index([("match_date", ASCENDING)])
 
+    # model_metrics: dashboard endpoints sort by date and may filter by model_version.
     await active_db.model_metrics.create_index([("date", DESCENDING)])
     await active_db.model_metrics.create_index([("model_version", ASCENDING)])
 
