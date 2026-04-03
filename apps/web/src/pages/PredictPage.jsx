@@ -4,6 +4,7 @@ import { generatePrediction, validateMatch, getLiveLeagues } from '../services/a
 import PredictionCard from '../components/PredictionCard'
 import ExtendedMarketsPanel from '../components/ExtendedMarketsPanel'
 import { useApiContract } from '../hooks/useApiContract'
+import { useMetricsSummary } from '../hooks/useData'
 import { SPORT_LABELS } from '../config/apiContract'
 
 const PIPELINE_STEPS = {
@@ -32,6 +33,7 @@ const PIPELINE_STEPS = {
 
 export default function PredictPage() {
   const { contract } = useApiContract()
+  const { data: summary } = useMetricsSummary()
   const sports = contract.supported_sports
   const teamNameMin = contract.field_limits.team_name.min
   const validationRequestIdRef = useRef(0)
@@ -286,7 +288,7 @@ export default function PredictPage() {
       {/* Result */}
       {result && !loading && (
         <div className="flex flex-col gap-4 animate-slide-up">
-          <PredictionCard prediction={result} />
+          <PredictionCard prediction={result} engineStatusBySport={summary?.is_trained || null} />
           {result.extended_markets && (
             <ExtendedMarketsPanel markets={result.extended_markets} sport={result.sport} />
           )}

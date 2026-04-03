@@ -1,7 +1,7 @@
 // src/pages/HistoryPage.jsx
 import React, { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { usePredictions, useResults } from '../hooks/useData'
+import { usePredictions, useResults, useMetricsSummary } from '../hooks/useData'
 import PredictionTable from '../components/PredictionTable'
 import PredictionCard from '../components/PredictionCard'
 import { submitResult } from '../services/api'
@@ -29,8 +29,11 @@ export default function HistoryPage() {
   const { data, loading, error, refetch } = usePredictions(
     sport === 'all' ? null : sport,
     200,
+    15000,
   )
-  const { data: results = [] } = useResults(200)
+  const { data: results = [] } = useResults(200, 10000)
+  const { data: summary } = useMetricsSummary()
+  const engineStatusBySport = summary?.is_trained || null
 
   const resolvedMatches = results.reduce((map, result) => {
     if (result?.match_id) map[result.match_id] = result
@@ -154,7 +157,12 @@ export default function HistoryPage() {
 
       {/* Predictions */}
       {view === 'table' ? (
-        <PredictionTable predictions={filtered} resolvedMatches={resolvedMatches} onRefetch={refetch} />
+        <PredictionTable
+          predictions={filtered}
+          resolvedMatches={resolvedMatches}
+          onRefetch={refetch}
+          engineStatusBySport={engineStatusBySport}
+        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
           {loading
@@ -166,6 +174,7 @@ export default function HistoryPage() {
                   key={pred.match_id || i}
                   prediction={pred}
                   resolvedMatch={resolvedMatches[pred.match_id]}
+                  engineStatusBySport={engineStatusBySport}
                 />
               ))}
           {!loading && !filtered.length && (

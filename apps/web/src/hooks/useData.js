@@ -9,14 +9,16 @@ import {
   getConfidenceHistory,
 } from '../services/api'
 
-export function usePredictions(sport = null, limit = 50) {
+export function usePredictions(sport = null, limit = 50, refreshMs = 0) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const fetch = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const fetch = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const res = await getPredictions(sport, limit)
       setData(Array.isArray(res.data) ? res.data : [])
@@ -24,11 +26,20 @@ export function usePredictions(sport = null, limit = 50) {
       setError(e.response?.data?.detail || e.message)
       setData([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [sport, limit])
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { fetch(false) }, [fetch])
+
+  useEffect(() => {
+    if (!refreshMs || refreshMs < 1000) return undefined
+    const timer = setInterval(() => {
+      fetch(true)
+    }, refreshMs)
+    return () => clearInterval(timer)
+  }, [fetch, refreshMs])
+
   return { data, loading, error, refetch: fetch }
 }
 
@@ -88,22 +99,39 @@ export function useConfidenceHistory(days = 30) {
   return { data, loading, refetch: fetch }
 }
 
-export function useResults(limit = 50) {
+export function useResults(limit = 50, refreshMs = 0) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    getResults(limit)
-      .then((r) => setData(Array.isArray(r.data) ? r.data : []))
-      .catch((e) => {
-        setError(e.message)
-        setData([])
-      })
-      .finally(() => setLoading(false))
+  const fetch = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
+
+    try {
+      const r = await getResults(limit)
+      setData(Array.isArray(r.data) ? r.data : [])
+    } catch (e) {
+      setError(e.message)
+      setData([])
+    } finally {
+      if (!silent) setLoading(false)
+    }
   }, [limit])
 
-  return { data, loading, error }
+  useEffect(() => { fetch(false) }, [fetch])
+
+  useEffect(() => {
+    if (!refreshMs || refreshMs < 1000) return undefined
+    const timer = setInterval(() => {
+      fetch(true)
+    }, refreshMs)
+    return () => clearInterval(timer)
+  }, [fetch, refreshMs])
+
+  return { data, loading, error, refetch: fetch }
 }
 
 /**
