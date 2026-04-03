@@ -244,16 +244,40 @@ def compute_all_markets(features: Dict[str, float], sport: str) -> Dict[str, Any
         away_goals_scored   = features.get("away_goals_scored_avg", 1.15)
         away_goals_conceded = features.get("away_goals_conceded_avg", 1.35)
 
-        raw_home_xg = (home_goals_scored + away_goals_conceded) / 2.0
-        raw_away_xg = (away_goals_scored + home_goals_conceded) / 2.0
+        pace_signal = float(np.clip((features.get("home_momentum", 0.5) + features.get("away_momentum", 0.5)) / 2.0, 0.0, 1.0))
+        implied_home = float(np.clip(features.get("implied_home_prob", 0.5), 0.02, 0.95))
+        implied_away = float(np.clip(features.get("implied_away_prob", 0.5), 0.02, 0.95))
+        odds_bias = float(np.clip(np.log((implied_home + 1e-6) / (implied_away + 1e-6)), -1.2, 1.2))
+
+        raw_home_xg = ((home_goals_scored * 0.62) + (away_goals_conceded * 0.38)) * (
+            1.0 + 0.12 * (pace_signal - 0.5) + 0.10 * odds_bias
+        )
+        raw_away_xg = ((away_goals_scored * 0.62) + (home_goals_conceded * 0.38)) * (
+            1.0 + 0.12 * (pace_signal - 0.5) - 0.10 * odds_bias
+        )
 
         # Apply injury discount after combining attack + defence
         home_xg = float(np.clip(raw_home_xg * (1.0 - home_inj * 0.5), 0.3, 5.0))
         away_xg = float(np.clip(raw_away_xg * (1.0 - away_inj * 0.5), 0.3, 5.0))
 
-        markets["goals_over_under"]  = _goals_ou_all(home_xg, away_xg)
-        markets["btts"]              = _btts(home_xg, away_xg)
-        markets["correct_score"]     = _correct_score(home_xg, away_xg)
+        goals_ou = _goals_ou_all(home_xg, away_xg)
+        btts = _btts(home_xg, away_xg)
+        correct_scores = _correct_score(home_xg, away_xg)
+        over_25 = goals_ou.get("over_2_5", {}).get("over", 0.5)
+
+        # Consistency engine: if BTTS No is strong, demote high BTTS-style scores.
+        if btts.get("no", 0.0) >= 0.58:
+            correct_scores = [s for s in correct_scores if not (int(s["score"].split("-")[0]) >= 1 and int(s["score"].split("-")[1]) >= 1)]
+            if not correct_scores:
+                correct_scores = _correct_score(home_xg, away_xg)
+
+        markets["goals_over_under"]  = goals_ou
+        markets["btts"]              = btts
+        markets["correct_score"]     = {
+            "top_1": correct_scores[0] if correct_scores else {"score": "1-0", "probability": 0.0},
+            "top_3": correct_scores[:3],
+            "top_10": correct_scores[:10],
+        }
         markets["corners"]           = _corners(home_form, away_form, home_att, away_att)
         rivalry = abs(h2h_signal - 0.5) * 2.0
         markets["bookings"]          = _bookings(home_form, away_form, rivalry)
@@ -261,6 +285,14 @@ def compute_all_markets(features: Dict[str, float], sport: str) -> Dict[str, Any
             _asian_handicap(home_xg, away_xg, h)
             for h in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
         ]
+        markets["consistency_checks"] = {
+            "high_over25_requires_high_xg": bool(not (over_25 > 0.6 and (home_xg + away_xg) < 2.4)),
+            "btts_no_aligned_scores": bool(not (btts.get("no", 0.0) > 0.58 and any(
+                int(s["score"].split("-")[0]) >= 1 and int(s["score"].split("-")[1]) >= 1
+                for s in markets["correct_score"]["top_3"]
+            ))),
+            "xg_total": round(home_xg + away_xg, 3),
+        }
 
     elif sport == "basketball":
         try:

@@ -68,6 +68,16 @@ _SOCCER_EXTRA = [
     "home_goals_scored_avg", "home_goals_conceded_avg",
     "away_goals_scored_avg", "away_goals_conceded_avg",
     "home_clean_sheet_rate", "away_clean_sheet_rate",
+    "home_conceding_freq", "away_conceding_freq",
+    "home_form_last5", "away_form_last5",
+    "goal_diff_trend_home", "goal_diff_trend_away",
+    "home_away_split_strength", "away_split_strength",
+    "market_move_home", "market_move_away",
+    "attack_home_defense_away",
+    "attack_away_defense_home",
+    "form_home_away_weakness",
+    "odds_form_interaction",
+    "xg_home_prior", "xg_away_prior", "xg_total_prior",
 ]
 _BASKETBALL_EXTRA = [
     "home_pts_avg", "away_pts_avg",
@@ -93,6 +103,16 @@ _DEFAULTS: Dict[str, float] = {
     "home_goals_scored_avg": 1.40, "home_goals_conceded_avg": 1.10,
     "away_goals_scored_avg": 1.15, "away_goals_conceded_avg": 1.35,
     "home_clean_sheet_rate": 0.28, "away_clean_sheet_rate": 0.22,
+    "home_conceding_freq": 0.72, "away_conceding_freq": 0.76,
+    "home_form_last5": 0.5, "away_form_last5": 0.5,
+    "goal_diff_trend_home": 0.5, "goal_diff_trend_away": 0.5,
+    "home_away_split_strength": 0.5, "away_split_strength": 0.5,
+    "market_move_home": 0.0, "market_move_away": 0.0,
+    "attack_home_defense_away": 0.5,
+    "attack_away_defense_home": 0.5,
+    "form_home_away_weakness": 0.5,
+    "odds_form_interaction": 0.5,
+    "xg_home_prior": 1.35, "xg_away_prior": 1.10, "xg_total_prior": 2.45,
     # basketball — normalised 0–1 internally
     "home_pts_avg": 0.5, "away_pts_avg": 0.5,
     "home_pts_allowed_avg": 0.5, "away_pts_allowed_avg": 0.5,
@@ -105,6 +125,8 @@ _RAW_STAT_KEYS = frozenset({
     "away_goals_scored_avg", "away_goals_conceded_avg",
     "home_pts_avg", "away_pts_avg",
     "home_pts_allowed_avg", "away_pts_allowed_avg",
+    "xg_home_prior", "xg_away_prior", "xg_total_prior",
+    "market_move_home", "market_move_away",
 })
 
 _PRIOR: Dict[str, Dict[str, float]] = {
@@ -270,6 +292,32 @@ class PredictionEngine:
             f["away_goals_conceded_avg"] = float(away_data.get("goals_conceded_avg", 1.35))
             f["home_clean_sheet_rate"]   = float(home_data.get("clean_sheet_rate", 0.28))
             f["away_clean_sheet_rate"]   = float(away_data.get("clean_sheet_rate", 0.22))
+            f["home_conceding_freq"] = float(np.clip(1.0 - f["home_clean_sheet_rate"], 0.0, 1.0))
+            f["away_conceding_freq"] = float(np.clip(1.0 - f["away_clean_sheet_rate"], 0.0, 1.0))
+            f["home_form_last5"] = float(home_data.get("form_last5_weighted", f["home_form_rating"]))
+            f["away_form_last5"] = float(away_data.get("form_last5_weighted", f["away_form_rating"]))
+            home_gd_trend_raw = float(home_data.get("goal_diff_trend", 0.0))
+            away_gd_trend_raw = float(away_data.get("goal_diff_trend", 0.0))
+            f["goal_diff_trend_home"] = float(np.clip((home_gd_trend_raw + 2.0) / 4.0, 0.0, 1.0))
+            f["goal_diff_trend_away"] = float(np.clip((away_gd_trend_raw + 2.0) / 4.0, 0.0, 1.0))
+            f["home_away_split_strength"] = float(home_data.get("home_split_strength", f["home_form_rating"]))
+            f["away_split_strength"] = float(away_data.get("away_split_strength", f["away_form_rating"]))
+            f["market_move_home"] = float(np.clip(odds_data.get("market_move_home", 0.0), -0.2, 0.2))
+            f["market_move_away"] = float(np.clip(odds_data.get("market_move_away", 0.0), -0.2, 0.2))
+
+            atk_home = float(np.clip(f["home_goals_scored_avg"] / 2.5, 0.0, 1.0))
+            def_away_weak = float(np.clip(f["away_goals_conceded_avg"] / 2.5, 0.0, 1.0))
+            atk_away = float(np.clip(f["away_goals_scored_avg"] / 2.5, 0.0, 1.0))
+            def_home_weak = float(np.clip(f["home_goals_conceded_avg"] / 2.5, 0.0, 1.0))
+            f["attack_home_defense_away"] = atk_home * def_away_weak
+            f["attack_away_defense_home"] = atk_away * def_home_weak
+            away_weakness = float(np.clip((f["away_conceding_freq"] + (1.0 - f["away_form_rating"])) / 2.0, 0.0, 1.0))
+            f["form_home_away_weakness"] = f["home_form_last5"] * away_weakness
+            f["odds_form_interaction"] = float(np.clip(f["implied_home_prob"] * (0.5 + f["form_delta"]), 0.0, 1.0))
+            xg_home, xg_away = self._estimate_soccer_xg(f)
+            f["xg_home_prior"] = xg_home
+            f["xg_away_prior"] = xg_away
+            f["xg_total_prior"] = xg_home + xg_away
 
         elif sport == "basketball":
             def _norm_pts(v: float) -> float:
@@ -309,15 +357,63 @@ class PredictionEngine:
         keys = FEATURE_KEYS.get(sport, FEATURE_KEYS["soccer"])
         return np.array([self._sanitize_value(k, features.get(k, _DEFAULTS.get(k, 0.5))) for k in keys], dtype=np.float64)
 
+    def _sigmoid(self, x: float) -> float:
+        x = float(np.clip(x, -12.0, 12.0))
+        return 1.0 / (1.0 + np.exp(-x))
+
+    def _estimate_soccer_xg(self, features: Dict[str, float]) -> Tuple[float, float]:
+        attack_home = float(np.clip(features.get("home_goals_scored_avg", 1.4), 0.2, 4.0))
+        defense_home = float(np.clip(features.get("home_goals_conceded_avg", 1.1), 0.2, 4.0))
+        attack_away = float(np.clip(features.get("away_goals_scored_avg", 1.15), 0.2, 4.0))
+        defense_away = float(np.clip(features.get("away_goals_conceded_avg", 1.35), 0.2, 4.0))
+
+        pace = float(np.clip((features.get("home_momentum", 0.5) + features.get("away_momentum", 0.5)) / 2.0, 0.0, 1.0))
+        form_edge = float(np.clip(features.get("form_delta", 0.5) - 0.5, -0.5, 0.5))
+        imp_home = float(np.clip(features.get("implied_home_prob", 0.5), 0.02, 0.9))
+        imp_away = float(np.clip(features.get("implied_away_prob", 0.5), 0.02, 0.9))
+        odds_bias = np.log((imp_home + 1e-6) / (imp_away + 1e-6))
+
+        base_home = (attack_home * 0.62 + defense_away * 0.38)
+        base_away = (attack_away * 0.62 + defense_home * 0.38)
+
+        xg_home = base_home * (1.0 + 0.12 * form_edge + 0.14 * pace + 0.08 * odds_bias)
+        xg_away = base_away * (1.0 - 0.12 * form_edge + 0.14 * pace - 0.08 * odds_bias)
+
+        home_inj = float(np.clip(features.get("home_injury_impact", 0.0), 0.0, 0.5))
+        away_inj = float(np.clip(features.get("away_injury_impact", 0.0), 0.0, 0.5))
+        xg_home *= (1.0 - home_inj * 0.55)
+        xg_away *= (1.0 - away_inj * 0.55)
+        return float(np.clip(xg_home, 0.2, 4.5)), float(np.clip(xg_away, 0.2, 4.5))
+
+    def _poisson_prob_matrix(self, home_xg: float, away_xg: float, max_goals: int = 8) -> np.ndarray:
+        mat = np.zeros((max_goals + 1, max_goals + 1), dtype=np.float64)
+        for h in range(max_goals + 1):
+            for a in range(max_goals + 1):
+                mat[h, a] = ((home_xg ** h * np.exp(-home_xg)) / np.math.factorial(h)) * (
+                    (away_xg ** a * np.exp(-away_xg)) / np.math.factorial(a)
+                )
+        total = float(np.sum(mat))
+        if total <= 0:
+            return np.full_like(mat, 1.0 / mat.size)
+        return mat / total
+
     # ── Prior prediction ──────────────────────────────────────────────────────
 
     def _prior(self, features: Dict[str, float], sport: str) -> Tuple[float, float, float]:
         weights = _PRIOR.get(sport, _PRIOR["soccer"])
-        score = 0.50
+        score = 0.0
         for feat, w in weights.items():
             score += w * (features.get(feat, 0.5) - 0.5)
 
-        home_prob = float(np.clip(score, 0.08, 0.92))
+        if sport == "soccer":
+            interaction = (
+                0.22 * (features.get("attack_home_defense_away", 0.5) - 0.5)
+                - 0.18 * (features.get("attack_away_defense_home", 0.5) - 0.5)
+                + 0.15 * (features.get("form_home_away_weakness", 0.5) - 0.5)
+                + 0.17 * (features.get("odds_form_interaction", 0.5) - 0.5)
+            )
+            score += interaction
+        home_prob = float(np.clip(self._sigmoid(score), 0.06, 0.94))
 
         if sport == "basketball":
             away_prob = float(np.clip(1.0 - home_prob, 0.08, 0.92))
@@ -326,8 +422,12 @@ class PredictionEngine:
                 return (0.5, 0.5, 0.0)
             return home_prob / total, away_prob / total, 0.0
 
-        evenness = 1.0 - abs(home_prob - 0.50) * 2.0
-        draw_prob = float(np.clip(0.26 * evenness, 0.04, 0.35))
+        xg_home, xg_away = self._estimate_soccer_xg(features)
+        xg_total = xg_home + xg_away
+        strength_similarity = 1.0 - min(1.0, abs(home_prob - 0.5) * 2.0)
+        defensive_balance = float(np.clip((features.get("home_clean_sheet_rate", 0.28) + features.get("away_clean_sheet_rate", 0.22)) / 2.0, 0.0, 1.0))
+        low_total_factor = float(np.clip((2.8 - xg_total) / 2.3, 0.0, 1.0))
+        draw_prob = float(np.clip(0.08 + 0.23 * strength_similarity * 0.55 + 0.24 * low_total_factor * 0.30 + 0.20 * defensive_balance * 0.15, 0.05, 0.34))
         away_prob = float(np.clip(1.0 - home_prob - draw_prob, 0.05, 0.85))
 
         total = home_prob + away_prob + draw_prob
@@ -337,11 +437,12 @@ class PredictionEngine:
 
     def _ml_weight(self, sport: str) -> float:
         n = self.n_training_samples.get(sport, 0)
-        if n < 30:
+        if n <= 1:
             return 0.0
         import math
-        w = _ML_WEIGHT_SCALE * math.log10(n)
-        return float(min(w, 0.92))
+        a, b = 1.15, -4.2
+        raw = a * math.log(max(n, 2)) + b
+        return float(np.clip(self._sigmoid(raw), 0.0, 0.93))
 
     # ── Main predict ──────────────────────────────────────────────────────────
 
@@ -376,6 +477,35 @@ class PredictionEngine:
             home_prob, away_prob, draw_prob = prior_h, prior_a, prior_d
             w_ml = 0.0
 
+        implied_h = float(np.clip(features.get("implied_home_prob", home_prob), 0.02, 0.96))
+        implied_a = float(np.clip(features.get("implied_away_prob", away_prob), 0.02, 0.96))
+        implied_d = float(np.clip(1.0 - implied_h - implied_a, 0.01, 0.6)) if sport != "basketball" else 0.0
+
+        sample_factor = float(np.clip(np.log1p(self.n_training_samples.get(sport, 0)) / 6.0, 0.0, 1.0))
+        dispersion = float(abs(home_prob - away_prob))
+        low_conf = float(np.clip(1.0 - (dispersion * 1.6 + sample_factor), 0.0, 1.0))
+        market_pull = 0.12 * low_conf
+
+        home_prob = (1.0 - market_pull) * home_prob + market_pull * implied_h
+        away_prob = (1.0 - market_pull) * away_prob + market_pull * implied_a
+        if sport != "basketball":
+            draw_prob = (1.0 - market_pull) * draw_prob + market_pull * implied_d
+
+        if sport == "soccer":
+            xg_home, xg_away = self._estimate_soccer_xg(features)
+            pmat = self._poisson_prob_matrix(xg_home, xg_away, max_goals=7)
+            p_home = float(np.tril(pmat, -1).sum())
+            p_draw = float(np.trace(pmat))
+            p_away = float(np.triu(pmat, 1).sum())
+            # Poisson-informed reconciliation for consistency.
+            home_prob = 0.78 * home_prob + 0.22 * p_home
+            away_prob = 0.78 * away_prob + 0.22 * p_away
+            draw_prob = 0.78 * draw_prob + 0.22 * p_draw
+            features["xg_home_prior"] = round(xg_home, 4)
+            features["xg_away_prior"] = round(xg_away, 4)
+            features["xg_total_prior"] = round(xg_home + xg_away, 4)
+            features["poisson_draw_prob"] = round(p_draw, 4)
+
         home_prob = float(np.clip(home_prob, 0.03, 0.97))
         away_prob = float(np.clip(away_prob, 0.03, 0.97))
         if sport == "basketball":
@@ -390,12 +520,21 @@ class PredictionEngine:
         if sport != "basketball" and draw_prob > 0.0:
             probs_map["draw"] = draw_prob
 
-        predicted_outcome = max(probs_map, key=probs_map.__getitem__)
-        winning_prob      = probs_map[predicted_outcome]
+        sorted_probs = sorted(probs_map.items(), key=lambda kv: kv[1], reverse=True)
+        predicted_outcome = sorted_probs[0][0]
+        winning_prob = sorted_probs[0][1]
+        runner_up = sorted_probs[1][1] if len(sorted_probs) > 1 else 0.0
 
         n_outcomes = 2 if sport == "basketball" else 3
         baseline   = 1.0 / n_outcomes
-        confidence = float(np.clip((winning_prob - baseline) / (1.0 - baseline), 0.0, 1.0))
+        gap_component = float(np.clip((winning_prob - runner_up) / 0.55, 0.0, 1.0))
+        strength_component = float(np.clip((winning_prob - baseline) / (1.0 - baseline), 0.0, 1.0))
+        market_vec = np.array([implied_h, implied_a] + ([implied_d] if sport != "basketball" else []), dtype=np.float64)
+        model_vec = np.array([home_prob, away_prob] + ([draw_prob] if sport != "basketball" else []), dtype=np.float64)
+        prior_vec = np.array([prior_h, prior_a] + ([prior_d] if sport != "basketball" else []), dtype=np.float64)
+        agreement = 1.0 - min(1.0, float(np.mean(np.abs(model_vec - market_vec)) + np.mean(np.abs(model_vec - prior_vec))))
+        confidence = float(np.clip(0.5 * gap_component + 0.25 * strength_component + 0.25 * agreement, 0.0, 1.0))
+        tier = "high" if confidence >= 0.72 else ("medium" if confidence >= 0.48 else "low")
 
         ci_low, ci_high = self._analytical_ci(features, home_prob, sport)
 
@@ -410,6 +549,9 @@ class PredictionEngine:
             "model_version":              self.model_version,
             "is_trained_model":           self.is_trained.get(sport, False),
             "ml_weight":                  round(w_ml, 3),
+            "confidence_tier":            tier,
+            "market_edge_home":           round(home_prob - implied_h, 4),
+            "market_edge_away":           round(away_prob - implied_a, 4),
             "sport":                      sport,
         }
 
@@ -541,8 +683,9 @@ class PredictionEngine:
             keys = FEATURE_KEYS.get(sport, [])
             top = sorted(zip(keys, importances), key=lambda x: -x[1])[:8]
             logger.info(f"[{sport}] Top features: " + ", ".join(f"{k}={v:.3f}" for k, v in top))
+            feature_importance_top = [{"feature": k, "importance": round(float(v), 4)} for k, v in top]
         except Exception:
-            pass
+            feature_importance_top = []
 
         # NOTE: model version is intentionally NOT bumped here.
         # Previously this code mutated self.model_version and settings.MODEL_VERSION
@@ -558,6 +701,14 @@ class PredictionEngine:
 
         bs = brier_score_loss(binary_labels, home_probs)
         ll = log_loss(binary_labels, home_probs, labels=[0, 1])
+        bookmaker_probs = np.clip(
+            np.array([float(rec.get("features", {}).get("implied_home_prob", 0.5)) for rec in training_records[:n]], dtype=np.float64),
+            1e-6,
+            1 - 1e-6,
+        )
+        bookmaker_bs = brier_score_loss(binary_labels, bookmaker_probs)
+        calibration_gap = float(bs - bookmaker_bs)
+        recalibration_status = "ok" if calibration_gap <= 0.02 else "needs_review"
 
         logger.info(
             f"[{sport}] Retrained — n={n}, brier={bs:.4f}, "
@@ -566,7 +717,11 @@ class PredictionEngine:
         return {
             "status": "retrained", "sport": sport, "samples": n,
             "brier_score": round(bs, 4), "log_loss": round(ll, 4),
+            "bookmaker_brier_score": round(float(bookmaker_bs), 4),
+            "calibration_gap_vs_bookmaker": round(calibration_gap, 4),
+            "recalibration_status": recalibration_status,
             "calibration_method": cal_method, "ml_weight": round(self._ml_weight(sport), 3),
+            "top_feature_importance": feature_importance_top,
             "new_version": self.model_version,
         }
 
