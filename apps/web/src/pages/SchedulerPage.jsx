@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import PaginationControls from "../components/PaginationControls";
 import { triggerResolution } from "../services/api";
-import { formatWatDateTime } from "../utils/wat";
+import { formatWatDateTime, watTodayISO } from "../utils/wat";
 
 const SPORTS = ["soccer", "basketball"];
 const SPORT_DOTS = {
@@ -425,6 +425,7 @@ function SchedulerLogs({ logs, loading }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SchedulerPage() {
+  const defaultDate = watTodayISO();
   const [status, setStatus] = useState(null);
   const [fixtures, setFixtures] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -436,6 +437,7 @@ export default function SchedulerPage() {
   const [trigMsg, setTrigMsg] = useState(null);
   const [resolving, setResolving] = useState(false);
   const [resolveMsg, setResolveMsg] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(defaultDate);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -451,14 +453,16 @@ export default function SchedulerPage() {
   const loadFixtures = useCallback(async () => {
     setFixturesLoading(true);
     try {
-      const res = await api.get("/scheduler/fixtures/today");
+      const res = await api.get("/scheduler/fixtures/today", {
+        params: { match_date: selectedDate },
+      });
       setFixtures(res.data);
     } catch {
       setFixtures(null);
     } finally {
       setFixturesLoading(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   const loadLogs = useCallback(async () => {
     try {
@@ -726,23 +730,36 @@ export default function SchedulerPage() {
       {/* Today's fixtures table */}
       <section>
         <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
-          <p className="label">
-            TODAY'S PREDICTIONS — {SPORT_LABEL[sport]?.toUpperCase()}
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {SPORTS.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSport(s)}
-                className={`font-display text-xs px-3 py-1 rounded-sm border transition-colors ${
-                  sport === s
-                    ? "bg-brand-red border-brand-red text-white"
-                    : "border-brand-midgray text-gray-500 hover:text-white"
-                }`}
-              >
-                {s.toUpperCase()}
-              </button>
-            ))}
+          <div>
+            <p className="label">
+              PREDICTIONS — {SPORT_LABEL[sport]?.toUpperCase()}
+            </p>
+            <p className="font-display text-xs text-gray-600 mt-1">
+              Viewing {fixtures?.date || selectedDate} (group history is preserved by date)
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-brand-darkgray border border-brand-midgray focus:border-brand-red outline-none text-white font-display text-xs px-3 py-1.5 rounded-sm"
+            />
+            <div className="flex flex-wrap gap-1">
+              {SPORTS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSport(s)}
+                  className={`font-display text-xs px-3 py-1 rounded-sm border transition-colors ${
+                    sport === s
+                      ? "bg-brand-red border-brand-red text-white"
+                      : "border-brand-midgray text-gray-500 hover:text-white"
+                  }`}
+                >
+                  {s.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <TodayTable

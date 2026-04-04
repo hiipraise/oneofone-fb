@@ -121,14 +121,16 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
 
 
 @router.get("/fixtures/today")
-async def get_today_fixtures():
-    """Today's generated predictions grouped by sport."""
+async def get_today_fixtures(
+    match_date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today in WAT"),
+):
+    """Generated predictions grouped by sport for a given date (defaults to today)."""
     db = _require_db()
-    today = datetime.now(WAT).strftime("%Y-%m-%d")
+    target_date = match_date or datetime.now(WAT).strftime("%Y-%m-%d")
     result: dict[str, list] = {s: [] for s in _SUPPORTED_SPORTS}
 
     async for pred in db.predictions.find(
-        {"match_date": today, "deleted_at": None}
+        {"match_date": target_date, "deleted_at": None}
     ).sort("timestamp", -1):
         pred.pop("_id", None)
         sport = pred.get("sport", "soccer")
@@ -148,10 +150,10 @@ async def get_today_fixtures():
                 "prediction_group_is_high_risk": pred.get("prediction_group_is_high_risk", False),
             })
 
-    groups_doc = await db.prediction_groups.find_one({"match_date": today}, {"_id": 0})
+    groups_doc = await db.prediction_groups.find_one({"match_date": target_date}, {"_id": 0})
 
     return {
-        "date":  today,
+        "date":  target_date,
         "total": sum(len(v) for v in result.values()),
         "by_sport": result,
         "groups": (groups_doc or {}).get("groups", []),
