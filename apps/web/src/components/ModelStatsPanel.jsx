@@ -125,7 +125,7 @@ export default function ModelStatsPanel({ summary, loading }) {
     )
   }
 
-  const m          = summary.performance_metrics || {}
+  const m          = summary.performance_metrics_all_sports || {}
   const mlWeights  = summary.ml_weights          || {}
   const nSamples   = summary.n_training_samples  || {}
   const totalSamples = Object.values(nSamples).reduce((s, v) => s + (v || 0), 0)
