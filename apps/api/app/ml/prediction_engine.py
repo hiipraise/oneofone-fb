@@ -26,6 +26,7 @@ Fix v2.2:
 import logging
 import pickle
 import os
+import math
 from datetime import datetime, timezone, timedelta
 from app.utils.timezone import WAT
 from typing import Dict, List, Optional, Any, Tuple, Literal, cast
@@ -389,8 +390,8 @@ class PredictionEngine:
         mat = np.zeros((max_goals + 1, max_goals + 1), dtype=np.float64)
         for h in range(max_goals + 1):
             for a in range(max_goals + 1):
-                mat[h, a] = ((home_xg ** h * np.exp(-home_xg)) / np.math.factorial(h)) * (
-                    (away_xg ** a * np.exp(-away_xg)) / np.math.factorial(a)
+                mat[h, a] = ((home_xg ** h * np.exp(-home_xg)) / math.factorial(h)) * (
+                    (away_xg ** a * np.exp(-away_xg)) / math.factorial(a)
                 )
         total = float(np.sum(mat))
         if total <= 0:
