@@ -1,5 +1,5 @@
 // src/pages/HistoryPage.jsx
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePredictions, useResults, useMetricsSummary } from '../hooks/useData'
 import PredictionTable from '../components/PredictionTable'
@@ -19,6 +19,7 @@ export default function HistoryPage() {
 
   const [sport, setSport]       = useState(validSport)
   const [view, setView]         = useState('table')
+  const [expandedGroupId, setExpandedGroupId] = useState(null)
   const [search, setSearch]     = useState('')
   const [resultForm, setResultForm] = useState({
     matchId: '', homeScore: '', awayScore: '', date: todayISO(),
@@ -39,6 +40,70 @@ export default function HistoryPage() {
     if (result?.match_id) map[result.match_id] = result
     return map
   }, {})
+
+  const groupHistory = useMemo(() => {
+    const groups = new Map()
+
+    for (const pred of data) {
+      const groupId = pred?.prediction_group_id
+      if (!groupId) continue
+
+      const existing = groups.get(groupId) || {
+        groupId,
+        matchDate: pred.match_date || pred.timestamp || '',
+        games: 0,
+        resolved: 0,
+        hits: 0,
+        highRisk: false,
+        sports: new Set(),
+        gameRows: [],
+      }
+
+      existing.games += 1
+      existing.highRisk = existing.highRisk || !!pred.prediction_group_is_high_risk
+      if (pred.sport) existing.sports.add(pred.sport)
+
+      const resolved = resolvedMatches[pred.match_id]
+      const gameStatus = !resolved?.actual_outcome
+        ? 'pending'
+        : resolved.actual_outcome === pred.predicted_outcome
+          ? 'correct'
+          : 'miss'
+
+      existing.gameRows.push({
+        matchId: pred.match_id,
+        homeTeam: pred.home_team,
+        awayTeam: pred.away_team,
+        predictedOutcome: pred.predicted_outcome,
+        actualOutcome: resolved?.actual_outcome || null,
+        status: gameStatus,
+      })
+
+      if (resolved?.actual_outcome) {
+        existing.resolved += 1
+        if (resolved.actual_outcome === pred.predicted_outcome) {
+          existing.hits += 1
+        }
+      }
+
+      groups.set(groupId, existing)
+    }
+
+    return Array.from(groups.values())
+      .map((g) => {
+        const isResolved = g.resolved === g.games && g.games > 0
+        const hitRate = g.games > 0 ? g.hits / g.games : 0
+        return {
+          ...g,
+          isResolved,
+          status: isResolved ? (g.hits === g.games ? 'won' : 'lost') : 'pending',
+          hitRate,
+          sportsLabel: Array.from(g.sports).join(', ').toUpperCase() || '—',
+          gameRows: g.gameRows,
+        }
+      })
+      .sort((a, b) => String(b.matchDate).localeCompare(String(a.matchDate)))
+  }, [data, resolvedMatches])
 
   // Client-side search filter
   const filtered = search.trim().length > 1
@@ -114,6 +179,10 @@ export default function HistoryPage() {
             onClick={() => setView('cards')}
             className={view === 'cards' ? 'btn-primary' : 'btn-ghost'}
           >CARDS</button>
+          <button
+            onClick={() => setView('groups')}
+            className={view === 'groups' ? 'btn-primary' : 'btn-ghost'}
+          >GROUPS</button>
         </div>
       </div>
 
@@ -163,7 +232,7 @@ export default function HistoryPage() {
           onRefetch={refetch}
           engineStatusBySport={engineStatusBySport}
         />
-      ) : (
+      ) : view === 'cards' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
           {loading
             ? [...Array(6)].map((_, i) => (
@@ -180,6 +249,102 @@ export default function HistoryPage() {
           {!loading && !filtered.length && (
             <div className="col-span-3 card p-8 text-center">
               <p className="font-display text-gray-600 text-sm">NO PREDICTIONS MATCH YOUR FILTER</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b border-brand-midgray bg-brand-darkgray">
+                <tr>
+                  {['GROUP', 'DATE', 'SPORTS', 'GAMES', 'HIT RATE', 'STATUS', 'DETAILS'].map((h) => (
+                    <th key={h} className="text-left label px-4 py-3">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groupHistory.map((g) => (
+                  <React.Fragment key={g.groupId}>
+                    <tr className="border-b border-brand-midgray hover:bg-brand-gray transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-display text-xs text-white">{g.groupId}</span>
+                          {g.highRisk && (
+                            <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
+                              HIGH RISK
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-display text-xs text-gray-500">{g.matchDate || '—'}</td>
+                      <td className="px-4 py-3 font-display text-xs text-gray-400">{g.sportsLabel}</td>
+                      <td className="px-4 py-3 font-display text-xs text-white tabular-nums">
+                        {g.resolved}/{g.games}
+                      </td>
+                      <td className="px-4 py-3 font-display text-xs tabular-nums text-gray-400">
+                        {Math.round(g.hitRate * 100)}%
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+                          g.status === 'won'
+                            ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+                            : g.status === 'lost'
+                              ? 'text-brand-redlight bg-brand-reddark border-brand-red'
+                              : 'text-gray-400 border-brand-midgray'
+                        }`}>
+                          {g.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setExpandedGroupId(prev => prev === g.groupId ? null : g.groupId)}
+                          className="btn-ghost text-xs"
+                        >
+                          {expandedGroupId === g.groupId ? 'HIDE GAMES' : 'VIEW GAMES'}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedGroupId === g.groupId && (
+                      <tr className="border-b border-brand-midgray bg-brand-darkgray">
+                        <td colSpan={7} className="px-4 py-3">
+                          <div className="space-y-2">
+                            {g.gameRows.map((game) => (
+                              <div key={game.matchId} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <p className="font-display text-gray-300">
+                                  {game.homeTeam} <span className="text-gray-600">vs</span> {game.awayTeam}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-display text-gray-600">
+                                    Pred: {(game.predictedOutcome || '—').toUpperCase()}
+                                  </span>
+                                  <span className="font-display text-gray-700">
+                                    Actual: {(game.actualOutcome || 'pending').toUpperCase()}
+                                  </span>
+                                  <span className={`font-display px-2 py-0.5 rounded-sm border ${
+                                    game.status === 'correct'
+                                      ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+                                      : game.status === 'miss'
+                                        ? 'text-brand-redlight bg-brand-reddark border-brand-red'
+                                        : 'text-gray-400 border-brand-midgray'
+                                  }`}>
+                                    {game.status.toUpperCase()}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!groupHistory.length && (
+            <div className="p-8 text-center">
+              <p className="font-display text-gray-600 text-sm">NO GROUP HISTORY FOUND</p>
             </div>
           )}
         </div>
