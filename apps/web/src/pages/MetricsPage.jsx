@@ -615,14 +615,14 @@ export default function MetricsPage() {
                           {m.log_loss?.toFixed(4) ?? "—"}
                         </td>
                         <td className="px-4 py-3 font-display text-xs text-gray-400 tabular-nums">
-                          {m.calibration_error
+                          {m.calibration_error != null
                             ? `${(m.calibration_error * 100).toFixed(2)}%`
                             : "—"}
                         </td>
                         <td
                           className={`px-4 py-3 font-display text-xs tabular-nums ${aColor}`}
                         >
-                          {m.accuracy
+                          {m.accuracy != null
                             ? `${(m.accuracy * 100).toFixed(1)}%`
                             : "—"}
                         </td>
