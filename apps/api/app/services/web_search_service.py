@@ -327,6 +327,11 @@ ESPN_SPORT_MAP = {
     "basketball": ("basketball", "nba"),
 }
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
+_SOCCER_ESPN_LEAGUES = (
+    "eng.1", "eng.2", "esp.1", "esp.2", "ger.1", "ita.1", "fra.1",
+    "uefa.champions", "uefa.europa", "usa.1", "por.1", "ned.1",
+    "arg.1", "bra.1", "tur.1", "mex.1", "ksa.1",
+)
 
 
 def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
@@ -335,24 +340,28 @@ def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
     if cached is not None:
         return cached
 
-    espn_sport, league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
+    espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
+    leagues = _SOCCER_ESPN_LEAGUES if sport == "soccer" else (default_league,)
     try:
-        resp = requests.get(f"{ESPN_BASE}/{espn_sport}/{league}/teams", timeout=8)
-        if resp.status_code != 200:
-            return None
-        teams = resp.json().get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
         tl = team_name.lower()
-        for entry in teams:
-            t = entry.get("team", {})
-            names = [
-                t.get("displayName", "").lower(),
-                t.get("shortDisplayName", "").lower(),
-                t.get("name", "").lower(),
-                t.get("nickname", "").lower(),
-            ]
-            if any(tl in n or n in tl for n in names if n):
-                _set_cache(ck, t, ttl=CACHE_TTL_LONG)
-                return t
+        for league in leagues:
+            resp = requests.get(f"{ESPN_BASE}/{espn_sport}/{league}/teams", timeout=8)
+            if resp.status_code != 200:
+                continue
+            teams = resp.json().get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            for entry in teams:
+                t = entry.get("team", {})
+                names = [
+                    t.get("displayName", "").lower(),
+                    t.get("shortDisplayName", "").lower(),
+                    t.get("name", "").lower(),
+                    t.get("nickname", "").lower(),
+                ]
+                if any(tl in n or n in tl for n in names if n):
+                    found = dict(t)
+                    found["_league"] = league
+                    _set_cache(ck, found, ttl=CACHE_TTL_LONG)
+                    return found
     except Exception as e:
         logger.debug(f"ESPN team search [{sport}]: {e}")
     return None
@@ -378,7 +387,8 @@ def _espn_team_record(team_name: str, sport: str) -> Dict[str, Any]:
     if not team_id:
         return result
 
-    espn_sport, league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
+    espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
+    league = team.get("_league", default_league)
     try:
         resp = requests.get(f"{ESPN_BASE}/{espn_sport}/{league}/teams/{team_id}", timeout=8)
         if resp.status_code != 200:
