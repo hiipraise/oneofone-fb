@@ -93,6 +93,9 @@ async def create_indexes():
     await active_db.system_logs.create_index([("timestamp", DESCENDING)])
     await active_db.system_logs.create_index([("level", ASCENDING)])
 
+    await active_db.external_api_cache.create_index([("key", ASCENDING)], unique=True)
+    await active_db.external_api_cache.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
+
 
 @contextmanager
 def override_db_context(

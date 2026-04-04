@@ -184,31 +184,67 @@ class PredictionEngine:
 
     # ── Persistence ──────────────────────────────────────────────────────────
 
+    def _feature_width(self, sport: str) -> int:
+        return len(FEATURE_KEYS.get(sport, FEATURE_KEYS["soccer"]))
+
+    def _artifact_suffix(self, sport: str) -> str:
+        return f"v{self.model_version}_{self._feature_width(sport)}_features"
+
     def _model_path(self, sport: str) -> str:
-        return os.path.join(MODEL_DIR, f"model_{sport}_v{self.model_version}.pkl")
+        return os.path.join(MODEL_DIR, f"model_{sport}_{self._artifact_suffix(sport)}.pkl")
 
     def _scaler_path(self, sport: str) -> str:
-        return os.path.join(MODEL_DIR, f"scaler_{sport}_v{self.model_version}.pkl")
+        return os.path.join(MODEL_DIR, f"scaler_{sport}_{self._artifact_suffix(sport)}.pkl")
 
     def _meta_path(self, sport: str) -> str:
+        return os.path.join(MODEL_DIR, f"meta_{sport}_{self._artifact_suffix(sport)}.pkl")
+
+    def _legacy_model_path(self, sport: str) -> str:
+        return os.path.join(MODEL_DIR, f"model_{sport}_v{self.model_version}.pkl")
+
+    def _legacy_scaler_path(self, sport: str) -> str:
+        return os.path.join(MODEL_DIR, f"scaler_{sport}_v{self.model_version}.pkl")
+
+    def _legacy_meta_path(self, sport: str) -> str:
         return os.path.join(MODEL_DIR, f"meta_{sport}.pkl")
 
     def _load_all(self):
         for sport in FEATURE_KEYS:
-            mp, sp = self._model_path(sport), self._scaler_path(sport)
+            mp, sp, meta_path = self._model_path(sport), self._scaler_path(sport), self._meta_path(sport)
+            if not (os.path.exists(mp) and os.path.exists(sp)):
+                mp, sp, meta_path = self._legacy_model_path(sport), self._legacy_scaler_path(sport), self._legacy_meta_path(sport)
+
             if os.path.exists(mp) and os.path.exists(sp):
                 try:
                     with open(mp, "rb") as f:
                         self.models[sport] = pickle.load(f)
                     with open(sp, "rb") as f:
                         self.scalers[sport] = pickle.load(f)
-                    if os.path.exists(self._meta_path(sport)):
-                        with open(self._meta_path(sport), "rb") as f:
+                    if os.path.exists(meta_path):
+                        with open(meta_path, "rb") as f:
                             meta = pickle.load(f)
                             self.n_training_samples[sport] = meta.get("n_samples", 0)
+
+                    expected = self._feature_width(sport)
+                    actual = int(getattr(self.scalers[sport], "n_features_in_", -1))
+                    if actual != expected:
+                        logger.warning(
+                            "[%s] Loaded artifact has %s features but code expects %s. "
+                            "Skipping persisted model; retrain required.",
+                            sport,
+                            actual,
+                            expected,
+                        )
+                        self._init_model(sport)
+                        continue
+
                     self.is_trained[sport] = True
-                    logger.info(f"Model loaded [{sport}] v{self.model_version} "
-                                f"(n={self.n_training_samples[sport]})")
+                    logger.info(
+                        "Model loaded [%s] %s (n=%s)",
+                        sport,
+                        self._artifact_suffix(sport),
+                        self.n_training_samples[sport],
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to load [{sport}] model: {e}")
                     self._init_model(sport)
@@ -669,6 +705,10 @@ class PredictionEngine:
         y = np.array(labels)
         w = np.array(weights)
         n = len(rows)
+        expected_features = self._feature_width(sport)
+        assert X.shape[1] == expected_features, (
+            f"Training matrix width {X.shape[1]} does not match configured feature width {expected_features}."
+        )
 
         unique_classes, class_counts = np.unique(y, return_counts=True)
         if len(unique_classes) < 2:
@@ -695,6 +735,9 @@ class PredictionEngine:
             }
 
         self.scalers[sport].fit(X)
+        assert X.shape[1] == int(self.scalers[sport].n_features_in_), (
+            f"Scaler feature width mismatch: X has {X.shape[1]} while scaler expects {self.scalers[sport].n_features_in_}."
+        )
         X_scaled = self.scalers[sport].transform(X)
 
         if n >= 100 and settings.CALIBRATION_METHOD != "sigmoid":
