@@ -36,7 +36,9 @@ async def get_metrics_summary():
     sports = list(FEATURE_KEYS.keys())
 
     actual_results: dict[str, str] = {}
+    total_resolved_raw = 0
     async for doc in db.actual_results.find({}):
+        total_resolved_raw += 1
         actual_results[doc["match_id"]] = doc.get("actual_outcome")
 
     records = []
@@ -71,7 +73,7 @@ async def get_metrics_summary():
         metrics = {}
 
     total_preds = await db.predictions.count_documents({})
-    total_results = await db.actual_results.count_documents({})
+    total_resolved_scored = len(records)
 
     n_training = {
         s: max(
@@ -109,7 +111,9 @@ async def get_metrics_summary():
         "performance_metrics": metrics,
         "sport_breakdown": sport_breakdown,
         "total_predictions": total_preds,
-        "total_resolved": total_results,
+        "total_resolved_raw": total_resolved_raw,
+        "total_resolved_scored": total_resolved_scored,
+        "total_resolved": total_resolved_scored,
         "model_version": prediction_engine.model_version,
         "is_trained": is_trained,
         "n_training_samples": n_training,

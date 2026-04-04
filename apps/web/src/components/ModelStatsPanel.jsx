@@ -177,9 +177,9 @@ export default function ModelStatsPanel({ summary, loading }) {
         <StatBlock label="ACCURACY"       value={fmtPct(m.accuracy)}      sub="Binary classification"   colorClass={accColor} />
         <StatBlock label="PREDICTIONS"    value={(summary.total_predictions ?? 0).toLocaleString()} sub="All time" />
         <StatBlock
-          label="RESOLVED"
-          value={(summary.total_resolved ?? 0).toLocaleString()}
-          sub={`v${summary.model_version || '3.0.0'}`}
+          label="RESOLVED (SCORED)"
+          value={(summary.total_resolved_scored ?? summary.total_resolved ?? 0).toLocaleString()}
+          sub={`Scored in metrics · v${summary.model_version || '3.0.0'}`}
           colorClass={anyActive ? 'text-brand-greenlight' : 'text-yellow-500'}
         />
         <StatBlock

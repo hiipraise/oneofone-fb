@@ -271,7 +271,17 @@ export default function Sidebar({ isOpen = false, onClose }) {
               <div className="flex items-center justify-between">
                 <span className="font-display text-xs text-gray-600">RESOLVED</span>
                 <span className="font-display text-xs text-gray-400 tabular-nums">
-                  {(modelSummary.total_resolved || 0).toLocaleString()}
+                  {(modelSummary.total_resolved_scored ?? modelSummary.total_resolved ?? 0).toLocaleString()}
+                </span>
+              </div>
+              <p className="font-display text-xs text-gray-700 -mt-1">
+                Resolved shown above = scored in metrics
+              </p>
+
+              <div className="flex items-center justify-between">
+                <span className="font-display text-xs text-gray-600">SUBMITTED RESULTS</span>
+                <span className="font-display text-xs text-gray-500 tabular-nums">
+                  {(modelSummary.total_resolved_raw ?? 0).toLocaleString()}
                 </span>
               </div>
 

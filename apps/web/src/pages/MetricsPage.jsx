@@ -391,7 +391,7 @@ export default function MetricsPage() {
       await triggerLearning();
       setTrigMsg({
         type: "success",
-        text: "Learning update triggered — model will retrain with latest resolved predictions.",
+        text: "Learning update triggered — model will retrain with latest scored resolved predictions.",
       });
       refetch();
     } catch (e) {
@@ -504,6 +504,22 @@ export default function MetricsPage() {
                 </span>
                 <span className="font-display text-xs text-gray-300">
                   17–23 per sport
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-t border-brand-midgray">
+                <span className="font-display text-xs text-gray-500">
+                  RESOLVED (SCORED)
+                </span>
+                <span className="font-display text-xs text-gray-300 tabular-nums">
+                  {(summary.total_resolved_scored ?? summary.total_resolved ?? 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2">
+                <span className="font-display text-xs text-gray-500">
+                  SUBMITTED RESULTS (RAW)
+                </span>
+                <span className="font-display text-xs text-gray-500 tabular-nums">
+                  {(summary.total_resolved_raw ?? 0).toLocaleString()}
                 </span>
               </div>
             </div>
