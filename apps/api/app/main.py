@@ -91,10 +91,7 @@ app.include_router(scheduler_routes.router,   prefix="/api/scheduler",   tags=["
 app.include_router(meta.router,        prefix="/api/meta",        tags=["meta"])
 
 
-@app.options("/{rest_of_path:path}", include_in_schema=False)
-async def options_catch_all(rest_of_path: str) -> Response:
-    """Return a clean preflight response for unknown/non-CORS OPTIONS probes."""
-    return Response(status_code=204)
+
 
 
 
