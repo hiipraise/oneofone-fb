@@ -1,5 +1,5 @@
 // src/pages/SchedulerPage.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import PaginationControls from "../components/PaginationControls";
@@ -45,19 +45,23 @@ function outcomeTag(outcome) {
   return <span className="tag-gray text-xs">—</span>;
 }
 
-function groupTag(row) {
+function groupTag(row, groupStatusById) {
   const idx = row?.prediction_group_index;
-  if (!idx) return <span className="tag-gray text-xs">UNGROUPED</span>;
-  if (row?.prediction_group_is_high_risk) {
+  const groupId = row?.prediction_group_id;
+  if (!idx || !groupId) return <span className="tag-gray text-xs">UNGROUPED</span>;
+
+  const status = groupStatusById[groupId];
+  if (status === "miss") {
     return (
       <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
-        G{idx} · HIGH RISK
+        G{idx} · GROUP MISS
       </span>
     );
   }
+
   return (
-    <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-yellow-300 bg-yellow-900/20 border-yellow-800">
-      G{idx}
+    <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-greenlight bg-brand-greendark border-brand-green">
+      G{idx} · GROUP CORRECT
     </span>
   );
 }
@@ -136,6 +140,14 @@ function StatusCard({ status, loading }) {
 // ── Today fixture table ───────────────────────────────────────────────────────
 function TodayTable({ fixtures, sport, loading }) {
   const rows = fixtures?.by_sport?.[sport] ?? [];
+  const groupStatusById = useMemo(() => {
+    const map = {};
+    for (const group of fixtures?.groups || []) {
+      if (!group?.group_id) continue;
+      map[group.group_id] = group.is_high_risk_group ? "miss" : "correct";
+    }
+    return map;
+  }, [fixtures]);
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
 
@@ -227,7 +239,7 @@ function TodayTable({ fixtures, sport, loading }) {
                     {outcomeTag(row.predicted_outcome)}
                   </td>
                   <td className="px-4 py-3">
-                    {groupTag(row)}
+                    {groupTag(row, groupStatusById)}
                   </td>
                   <td className="px-4 py-3">
                     <span
