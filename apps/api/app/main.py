@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from app.utils.timezone import WAT
 
 from fastapi import FastAPI
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -89,6 +89,14 @@ app.include_router(search.router,      prefix="/api/search",      tags=["search"
 app.include_router(chat.router,        prefix="/api/chat",        tags=["chat"])
 app.include_router(scheduler_routes.router,   prefix="/api/scheduler",   tags=["scheduler"])
 app.include_router(meta.router,        prefix="/api/meta",        tags=["meta"])
+
+
+@app.options("/{rest_of_path:path}", include_in_schema=False)
+async def options_catch_all(rest_of_path: str) -> Response:
+    """Return a clean preflight response for unknown/non-CORS OPTIONS probes."""
+    return Response(status_code=204)
+
+
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

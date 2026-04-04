@@ -358,6 +358,45 @@ class PredictionEngine:
         keys = FEATURE_KEYS.get(sport, FEATURE_KEYS["soccer"])
         return np.array([self._sanitize_value(k, features.get(k, _DEFAULTS.get(k, 0.5))) for k in keys], dtype=np.float64)
 
+    def _align_feature_vector(self, fv: np.ndarray, sport: str) -> np.ndarray:
+        """Align live feature vectors with persisted scaler/model input width."""
+        expected = getattr(self.scalers.get(sport), "n_features_in_", None)
+        if expected is None and self.models.get(sport) is not None:
+            expected = getattr(self.models[sport], "n_features_in_", None)
+        if expected is None:
+            return fv
+
+        expected = int(expected)
+        current = int(fv.shape[0])
+        if current == expected:
+            return fv
+
+        if current > expected:
+            logger.info(
+                "[%s] Trimming feature vector from %s to %s for model compatibility",
+                sport,
+                current,
+                expected,
+            )
+            return fv[:expected]
+
+        keys = FEATURE_KEYS.get(sport, FEATURE_KEYS["soccer"])
+        defaults = []
+        for idx in range(current, expected):
+            if idx < len(keys):
+                key = keys[idx]
+                defaults.append(self._sanitize_value(key, _DEFAULTS.get(key, 0.5)))
+            else:
+                defaults.append(0.5)
+        pad = np.array(defaults, dtype=np.float64)
+        logger.info(
+            "[%s] Padding feature vector from %s to %s for model compatibility",
+            sport,
+            current,
+            expected,
+        )
+        return np.concatenate([fv, pad])
+
     def _sigmoid(self, x: float) -> float:
         x = float(np.clip(x, -12.0, 12.0))
         return 1.0 / (1.0 + np.exp(-x))
@@ -457,7 +496,8 @@ class PredictionEngine:
 
         if self.is_trained.get(sport) and model is not None and w_ml > 0:
             try:
-                fv_scaled = self.scalers[sport].transform(fv.reshape(1, -1))
+                fv_aligned = self._align_feature_vector(fv, sport)
+                fv_scaled = self.scalers[sport].transform(fv_aligned.reshape(1, -1))
                 probs_arr = self._sanitize_probabilities(model.predict_proba(fv_scaled)[0])
                 classes   = list(model.classes_)
                 class_map = dict(zip(classes, probs_arr))
