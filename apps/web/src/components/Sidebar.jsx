@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { getMetricsSummary } from '../services/api'
 import { useQuota } from '../hooks/useData'
+import { getMlWeightState, ML_ACTIVATION_THRESHOLD } from './MlWeightLogic'
 
 const NAV_ITEMS = [
   { path: '/',             label: 'Dashboard',      icon: '◈' },
@@ -92,21 +93,21 @@ function QuotaBar({ quota, loading }) {
 
 // ── ML weight row ─────────────────────────────────────────────────────────────
 function MlWeightRow({ sport, weight, nSamples, dot }) {
-  const w   = weight ?? 0
-  const pct = Math.round(w * 100)
-  const barColor = pct >= 60 ? 'bg-brand-green' : pct >= 30 ? 'bg-yellow-500' : 'bg-brand-midgray'
+  const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } = getMlWeightState(weight, nSamples)
+
   return (
     <div className="flex items-center gap-2 py-1">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
       <span className="font-display text-xs text-gray-500 w-16 truncate capitalize">{sport}</span>
-      <div className="flex-1 h-1 bg-brand-darkgray rounded-full overflow-hidden">
+      <div className="relative flex-1 h-1 bg-brand-darkgray rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
-          style={{ width: `${Math.min(pct, 100)}%` }}
+          className={`h-full rounded-full transition-all duration-700 ${active ? mlBarColor : 'bg-blue-500 opacity-40'}`}
+          style={{ width: `${active ? Math.min(wPct, 100) : progressPct}%` }}
         />
+        {!active && <div className="absolute right-0 top-0 w-px h-full bg-gray-600" />}
       </div>
-      <span className="font-display text-xs tabular-nums text-gray-600 w-8 text-right">
-        {pct}%
+      <span className={`font-display text-xs tabular-nums w-10 text-right ${active ? mlTextColor : 'text-blue-400'}`}>
+        {active ? `${wPct}%` : `${n}/${threshold}`}
       </span>
     </div>
   )
@@ -216,7 +217,9 @@ export default function Sidebar({ isOpen = false, onClose }) {
               />
             ))}
             <p className="font-display text-xs text-gray-700 mt-2">
-              % trust in ML vs prior model
+              {SPORTS.some(s => (nSamples[s.key] ?? 0) >= ML_ACTIVATION_THRESHOLD)
+                ? 'Higher = more ML, less prior model'
+                : `Building toward ML activation (${ML_ACTIVATION_THRESHOLD} samples per sport)`}
             </p>
           </div>
         )}
@@ -287,7 +290,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
                     <span className={`font-display text-xs tabular-nums ${
                       (nSamples[s.key] ?? 0) >= 100
                         ? 'text-brand-greenlight'
-                        : (nSamples[s.key] ?? 0) >= 30
+                        : (nSamples[s.key] ?? 0) >= ML_ACTIVATION_THRESHOLD
                         ? 'text-yellow-400'
                         : 'text-gray-600'
                     }`}>
