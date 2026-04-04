@@ -1,5 +1,6 @@
 // src/components/ModelStatsPanel.jsx
 import React from 'react'
+import { getMlWeightState, ML_ACTIVATION_THRESHOLD } from './MlWeightLogic'
 
 function StatBlock({ label, value, sub, colorClass = 'text-white' }) {
   return (
@@ -19,19 +20,10 @@ function StatBlock({ label, value, sub, colorClass = 'text-white' }) {
  *  • n ≥ 30  → shows actual ML weight (green/yellow fill)
  */
 function WeightBar({ sport, weight, nSamples, dot }) {
-  const n      = nSamples ?? 0
-  const wPct   = Math.round((weight ?? 0) * 100)
-  const active = n >= 30
-
-  // Progress-to-activation mode
-  const progressPct   = Math.min(Math.round((n / 30) * 100), 100)
+  const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } = getMlWeightState(weight, nSamples)
   const progressColor = 'bg-blue-500'
 
-  // ML weight mode
-  const mlBarColor  = wPct >= 60 ? 'bg-brand-green' : wPct >= 30 ? 'bg-yellow-500' : 'bg-yellow-500'
-  const mlTextColor = wPct >= 60 ? 'text-brand-greenlight' : wPct >= 30 ? 'text-yellow-400' : 'text-yellow-400'
-
-  const calLabel = n >= 100 ? 'isotonic' : n >= 30 ? 'sigmoid' : 'prior'
+  const calLabel = n >= 100 ? 'isotonic' : n >= threshold ? 'sigmoid' : 'prior'
 
   return (
     <div>
@@ -66,7 +58,7 @@ function WeightBar({ sport, weight, nSamples, dot }) {
           </span>
         ) : (
           <span className="font-display text-xs tabular-nums w-10 text-right text-blue-400">
-            {n}/30
+            {n}/{threshold}
           </span>
         )}
       </div>
@@ -74,7 +66,7 @@ function WeightBar({ sport, weight, nSamples, dot }) {
       {/* Sub-label row */}
       <div className="flex justify-between mt-1 pl-5">
         <span className="font-display text-xs text-gray-700">
-          {active ? `${n} samples` : `${n} samples · ${30 - n} to activate`}
+          {active ? `${n} samples` : `${n} samples · ${threshold - n} to activate`}
         </span>
         <span className={`font-display text-xs ${
           calLabel === 'isotonic' ? 'text-brand-greenlight'
@@ -159,7 +151,7 @@ export default function ModelStatsPanel({ summary, loading }) {
     : null
 
   // How many sports are still below threshold?
-  const sportsBelow30 = SPORTS.filter(s => (nSamples[s] ?? 0) < 30)
+  const sportsBelow30 = SPORTS.filter(s => (nSamples[s] ?? 0) < ML_ACTIVATION_THRESHOLD)
   const anyActive     = trainedSports.length > 0
 
   return (
@@ -197,7 +189,7 @@ export default function ModelStatsPanel({ summary, loading }) {
           label="TRAINING DATA"
           value={totalSamples > 0 ? totalSamples.toLocaleString() : '—'}
           sub={engineLabel}
-          colorClass={totalSamples >= 30 ? 'text-brand-greenlight' : 'text-yellow-500'}
+          colorClass={totalSamples >= ML_ACTIVATION_THRESHOLD ? 'text-brand-greenlight' : 'text-yellow-500'}
         />
       </div>
 
@@ -227,8 +219,8 @@ export default function ModelStatsPanel({ summary, loading }) {
             <span className="text-yellow-500 text-xs shrink-0 mt-0.5">⚠</span>
             <p className="font-display text-xs text-yellow-500">
               {sportsBelow30.length === SPORTS.length
-                ? 'All sports need 30 resolved predictions to activate ML. Blue bars show progress.'
-                : `${sportsBelow30.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')} still building toward 30-sample threshold.`
+                ? `All sports need ${ML_ACTIVATION_THRESHOLD} resolved predictions to activate ML. Blue bars show progress.`
+                : `${sportsBelow30.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')} still building toward ${ML_ACTIVATION_THRESHOLD}-sample threshold.`
               }
             </p>
           </div>
