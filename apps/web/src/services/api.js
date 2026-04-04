@@ -47,6 +47,8 @@ export const deletePrediction = (matchId) =>
   api.delete(`/predictions/${matchId}`);
 export const restorePrediction = (matchId) =>
   api.post(`/predictions/${matchId}/restore`);
+export const repredictPrediction = (matchId) =>
+  api.post(`/predictions/${matchId}/repredict`);
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
 export const getMetrics = (limit = 30) =>

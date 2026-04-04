@@ -1,6 +1,6 @@
 // src/components/PredictionTable.jsx
 import React, { useState } from 'react'
-import { deletePrediction } from '../services/api'
+import { deletePrediction, repredictPrediction } from '../services/api'
 import { formatWatDate } from '../utils/wat'
 
 function outcomeTag(outcome) {
@@ -80,6 +80,29 @@ function DeleteButton({ matchId, onDeleted }) {
       title={confirming ? 'Click again to confirm delete' : 'Delete prediction'}
     >
       {loading ? '...' : confirming ? 'CONFIRM?' : '✕'}
+    </button>
+  )
+}
+
+function RePredictButton({ matchId, onDone }) {
+  const [loading, setLoading] = useState(false)
+
+  const handleClick = (e) => {
+    e.stopPropagation()
+    setLoading(true)
+    repredictPrediction(matchId)
+      .then(() => onDone?.())
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      className="font-display text-xs px-2 py-0.5 rounded-sm border border-brand-midgray text-gray-500 hover:border-brand-green hover:text-brand-greenlight transition-colors duration-150 disabled:opacity-40"
+      title="Force regenerate this prediction and regroup its date"
+    >
+      {loading ? '...' : '↻'}
     </button>
   )
 }
@@ -250,7 +273,10 @@ export default function PredictionTable({
                       </span>
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <DeleteButton matchId={pred.match_id} onDeleted={handleDeleted} />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <RePredictButton matchId={pred.match_id} onDone={onRefetch} />
+                        <DeleteButton matchId={pred.match_id} onDeleted={handleDeleted} />
+                      </div>
                     </td>
                   </tr>
 
