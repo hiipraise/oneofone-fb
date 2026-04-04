@@ -204,7 +204,14 @@ def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
     Results are slightly less precise than Google but sufficient for sports context.
     """
     try:
-        from duckduckgo_search import DDGS
+        DDGS = None
+        try:
+            from ddgs import DDGS as _DDGS  # package renamed from duckduckgo_search
+            DDGS = _DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS as _DDGS
+            DDGS = _DDGS
+
         with DDGS() as ddgs:
             raw = list(ddgs.text(query, max_results=num_results))
         return [
@@ -217,8 +224,8 @@ def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
         ]
     except ImportError:
         logger.warning(
-            "duckduckgo-search not installed. "
-            "Run: pip install duckduckgo-search"
+            "No DuckDuckGo provider installed. "
+            "Run: pip install ddgs (or duckduckgo-search)."
         )
         return []
     except Exception as e:
