@@ -5,23 +5,29 @@ import {
   Title, Tooltip, Legend, Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { usePerformanceHistory } from '../hooks/useData'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 const GRANULARITY_OPTIONS = [
-  { key: 'day', label: 'DAY' },
-  { key: 'week', label: 'WEEK' },
+  { key: 'day',   label: 'DAY'   },
+  { key: 'week',  label: 'WEEK'  },
   { key: 'month', label: 'MONTH' },
-  { key: 'year', label: 'YEAR' },
+  { key: 'year',  label: 'YEAR'  },
 ]
 
-function getPeriodKey(date, granularity) {
-  const d = new Date(date)
-  if (Number.isNaN(d.getTime())) return null
+const DAYS_FOR_GRANULARITY = {
+  day:   30,
+  week:  90,
+  month: 180,
+  year:  365,
+}
 
-  const year = d.getFullYear()
-  const month = d.getMonth() + 1
-  const day = d.getDate()
+function getPeriodKey(dateStr, granularity) {
+  // dateStr is "YYYY-MM-DD" from the backend — parse as local date to avoid
+  // UTC-midnight timezone shifts that would push dates back by one day.
+  const [year, month, day] = dateStr.split('-').map(Number)
+  if (!year || !month || !day) return null
 
   if (granularity === 'day') {
     return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -35,6 +41,8 @@ function getPeriodKey(date, granularity) {
     return `${year}`
   }
 
+  // ISO week (Monday-based)
+  const d = new Date(year, month - 1, day)
   const dayOfWeek = d.getDay() || 7
   const thursday = new Date(d)
   thursday.setDate(d.getDate() + (4 - dayOfWeek))
@@ -45,76 +53,87 @@ function getPeriodKey(date, granularity) {
 }
 
 function formatLabel(period, granularity) {
-  if (granularity === 'week') return period
-  if (granularity === 'year') return period
+  if (granularity === 'week' || granularity === 'year') return period
   if (granularity === 'month') {
     const [year, month] = period.split('-').map(Number)
     return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
   }
-  return new Date(period).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  // day — parse as local date
+  const [year, month, day] = period.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export default function PerformanceTrendChart({ metricsHistory = [] }) {
+export default function PerformanceTrendChart() {
   const [granularity, setGranularity] = useState('week')
+
+  // Fetch real performance metrics (predictions vs actual_results),
+  // adjusting the lookback window to match the chosen granularity.
+  const days = DAYS_FOR_GRANULARITY[granularity]
+  const { data: performanceHistory, loading } = usePerformanceHistory(days)
 
   const { labels, brierData, logLossData, accuracyData } = useMemo(() => {
     const bucketMap = new Map()
 
-    metricsHistory.forEach((metric) => {
-      const periodKey = getPeriodKey(metric.date, granularity)
+    performanceHistory.forEach((row) => {
+      if (!row.date) return
+      const periodKey = getPeriodKey(row.date, granularity)
       if (!periodKey) return
 
       if (!bucketMap.has(periodKey)) {
         bucketMap.set(periodKey, {
-          count: 0,
-          brierSum: 0,
-          brierCount: 0,
-          logLossSum: 0,
-          logLossCount: 0,
-          accuracySum: 0,
-          accuracyCount: 0,
+          brierSum: 0, brierCount: 0,
+          logLossSum: 0, logLossCount: 0,
+          accuracySum: 0, accuracyCount: 0,
+          totalMatches: 0,
         })
       }
 
       const bucket = bucketMap.get(periodKey)
-      bucket.count += 1
+      const n = row.count ?? 1  // weight by number of matches in that day
 
-      if (typeof metric.brier_score === 'number') {
-        bucket.brierSum += metric.brier_score
-        bucket.brierCount += 1
+      if (typeof row.brier_score === 'number') {
+        bucket.brierSum   += row.brier_score * n
+        bucket.brierCount += n
       }
-
-      if (typeof metric.log_loss === 'number') {
-        bucket.logLossSum += metric.log_loss
-        bucket.logLossCount += 1
+      if (typeof row.log_loss === 'number') {
+        bucket.logLossSum   += row.log_loss * n
+        bucket.logLossCount += n
       }
-
-      if (typeof metric.accuracy === 'number') {
-        bucket.accuracySum += metric.accuracy
-        bucket.accuracyCount += 1
+      if (typeof row.accuracy === 'number') {
+        bucket.accuracySum   += row.accuracy * n
+        bucket.accuracyCount += n
       }
+      bucket.totalMatches += n
     })
 
     const sortedPeriods = Array.from(bucketMap.keys()).sort()
 
     return {
-      labels: sortedPeriods.map((period) => formatLabel(period, granularity)),
-      brierData: sortedPeriods.map((period) => {
-        const bucket = bucketMap.get(period)
-        return bucket.brierCount ? bucket.brierSum / bucket.brierCount : null
+      labels: sortedPeriods.map((p) => formatLabel(p, granularity)),
+      brierData: sortedPeriods.map((p) => {
+        const b = bucketMap.get(p)
+        return b.brierCount ? +(b.brierSum / b.brierCount).toFixed(4) : null
       }),
-      logLossData: sortedPeriods.map((period) => {
-        const bucket = bucketMap.get(period)
-        return bucket.logLossCount ? bucket.logLossSum / bucket.logLossCount : null
+      logLossData: sortedPeriods.map((p) => {
+        const b = bucketMap.get(p)
+        return b.logLossCount ? +(b.logLossSum / b.logLossCount).toFixed(4) : null
       }),
-      accuracyData: sortedPeriods.map((period) => {
-        const bucket = bucketMap.get(period)
-        return bucket.accuracyCount ? bucket.accuracySum / bucket.accuracyCount : null
+      accuracyData: sortedPeriods.map((p) => {
+        const b = bucketMap.get(p)
+        return b.accuracyCount ? +(b.accuracySum / b.accuracyCount).toFixed(4) : null
       }),
     }
-  }, [metricsHistory, granularity])
+  }, [performanceHistory, granularity])
 
-  if (!metricsHistory.length) {
+  if (loading) {
+    return (
+      <div className="card p-6 flex items-center justify-center" style={{ height: 260 }}>
+        <p className="font-display text-gray-600 text-sm animate-pulse">LOADING TREND…</p>
+      </div>
+    )
+  }
+
+  if (!performanceHistory.length) {
     return (
       <div className="card p-6 flex items-center justify-center" style={{ height: 260 }}>
         <p className="font-display text-gray-600 text-sm">NO PERFORMANCE TREND DATA</p>
@@ -182,19 +201,27 @@ export default function PerformanceTrendChart({ metricsHistory = [] }) {
         bodyColor: '#ffffff',
         titleFont: { family: '"DM Mono"', size: 10 },
         bodyFont: { family: '"DM Mono"', size: 11 },
+        callbacks: {
+          afterBody: (items) => {
+            // Show match count for the hovered period from the first dataset's index
+            const idx = items[0]?.dataIndex
+            if (idx == null) return
+            return ''   // extend here if you want to surface count per tooltip
+          },
+        },
       },
     },
     scales: {
       x: {
         ticks: { color: '#4b5563', font: { family: '"DM Mono"', size: 10 } },
-        grid: { color: '#1a1a1a' },
+        grid:  { color: '#1a1a1a' },
         border: { color: '#2a2a2a' },
       },
       y: {
         type: 'linear',
         position: 'left',
         ticks: { color: '#dc2626', font: { family: '"DM Mono"', size: 10 } },
-        grid: { color: '#1a1a1a' },
+        grid:  { color: '#1a1a1a' },
         border: { color: '#2a2a2a' },
         title: { display: true, text: 'Loss', color: '#6b7280', font: { family: '"DM Mono"', size: 10 } },
       },
@@ -204,7 +231,7 @@ export default function PerformanceTrendChart({ metricsHistory = [] }) {
         min: 0,
         max: 1,
         ticks: { color: '#16a34a', font: { family: '"DM Mono"', size: 10 } },
-        grid: { drawOnChartArea: false },
+        grid:  { drawOnChartArea: false },
         border: { color: '#2a2a2a' },
         title: { display: true, text: 'Accuracy', color: '#6b7280', font: { family: '"DM Mono"', size: 10 } },
       },

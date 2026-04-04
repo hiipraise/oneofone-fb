@@ -7,6 +7,7 @@ import {
   getResults,
   getQuota,
   getConfidenceHistory,
+  getPerformanceHistory,   // ← add this export to your api.js (see below)
 } from "../services/api";
 
 export function usePredictions(sport = null, limit = 50, refreshMs = 0) {
@@ -17,8 +18,8 @@ export function usePredictions(sport = null, limit = 50, refreshMs = 0) {
 
   const fetch = useCallback(
     async (silent = false) => {
-      if (inFlight.current) return; // skip if previous still running
-      if (document.hidden) return; // skip if tab not visible
+      if (inFlight.current) return;
+      if (document.hidden) return;
       inFlight.current = true;
       if (!silent) {
         setLoading(true);
@@ -87,6 +88,34 @@ export function useMetricsHistory(limit = 30) {
   }, [limit]);
 
   return { data, loading };
+}
+
+/**
+ * Real-world performance trend — brier_score, log_loss, accuracy per day,
+ * computed from actual predictions evaluated against actual_results.
+ * This is what PerformanceTrendChart should use instead of useMetricsHistory.
+ */
+export function usePerformanceHistory(days = 90) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getPerformanceHistory(days);
+      setData(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [days]);
+
+  useEffect(() => {
+    fetch();
+  }, [fetch]);
+
+  return { data, loading, refetch: fetch };
 }
 
 export function useConfidenceHistory(days = 30) {

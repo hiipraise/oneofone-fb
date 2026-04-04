@@ -1,5 +1,7 @@
 # app/routes/metrics.py
 import logging
+import math
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from app.utils.timezone import WAT
 from fastapi import APIRouter, Query
@@ -63,10 +65,10 @@ async def get_metrics_summary():
                     sport_confidence[sport].append(float(confidence))
             if sport in records_by_sport:
                 records_by_sport[sport].append({
-                "home_win_probability": pred.get("home_win_probability", 0.5),
-                "draw_probability":     pred.get("draw_probability",     0.0),
-                "away_win_probability": pred.get("away_win_probability", 0.5),
-                "actual_outcome":       actual_outcome,
+                    "home_win_probability": pred.get("home_win_probability", 0.5),
+                    "draw_probability":     pred.get("draw_probability",     0.0),
+                    "away_win_probability": pred.get("away_win_probability", 0.5),
+                    "actual_outcome":       actual_outcome,
                 })
 
     performance_metrics_by_sport: dict[str, dict[str, float | int | None]] = {}
@@ -150,6 +152,95 @@ async def get_metrics_summary():
     }
 
 
+@router.get("/performance-history")
+async def get_performance_history(days: int = Query(90, ge=7, le=365)):
+    """
+    Returns daily brier_score, log_loss, and accuracy computed from real
+    predictions evaluated against actual_results — NOT training-time metrics.
+    """
+    db = get_db()
+    cutoff = (datetime.now(WAT) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    # Load all actual results into memory (typically small collection)
+    actual_results: dict[str, str] = {}
+    async for doc in db.actual_results.find({}):
+        actual_results[doc["match_id"]] = doc.get("actual_outcome")
+
+    if not actual_results:
+        return []
+
+    # Fetch resolved predictions within the date window
+    eps = 1e-9
+    by_date: dict[str, list[dict]] = defaultdict(list)
+
+    async for pred in db.predictions.find(
+        {
+            "match_id": {"$in": list(actual_results.keys())},
+            "deleted_at": None,
+            "match_date": {"$gte": cutoff},
+        }
+    ):
+        mid = pred.get("match_id")
+        actual = actual_results.get(mid)
+        if not actual:
+            continue
+
+        date = pred.get("match_date", "")
+        if not date:
+            continue
+
+        ph  = float(pred.get("home_win_probability") or 0.5)
+        pd_ = float(pred.get("draw_probability")      or 0.0)
+        pa  = float(pred.get("away_win_probability")  or 0.5)
+        total = ph + pd_ + pa
+        if total > 0:
+            ph, pd_, pa = ph / total, pd_ / total, pa / total
+
+        by_date[date].append({
+            "predicted_outcome": pred.get("predicted_outcome"),
+            "actual_outcome":    actual,
+            "ph": ph, "pd": pd_, "pa": pa,
+        })
+
+    if not by_date:
+        return []
+
+    result = []
+    for date in sorted(by_date.keys()):
+        group = by_date[date]
+        n = len(group)
+        brier_sum = 0.0
+        ll_sum    = 0.0
+        correct   = 0
+
+        for r in group:
+            ph, pd_, pa = r["ph"], r["pd"], r["pa"]
+            actual = r["actual_outcome"]
+
+            y_home = 1.0 if actual == "home_win" else 0.0
+            y_draw = 1.0 if actual == "draw"     else 0.0
+            y_away = 1.0 if actual == "away_win" else 0.0
+
+            brier_sum += (ph - y_home) ** 2 + (pd_ - y_draw) ** 2 + (pa - y_away) ** 2
+            ll_sum    += -(
+                y_home * math.log(max(ph,  eps)) +
+                y_draw * math.log(max(pd_, eps)) +
+                y_away * math.log(max(pa,  eps))
+            )
+            if r["predicted_outcome"] == actual:
+                correct += 1
+
+        result.append({
+            "date":        date,
+            "brier_score": round(brier_sum / n, 4),
+            "log_loss":    round(ll_sum    / n, 4),
+            "accuracy":    round(correct   / n, 4),
+            "count":       n,
+        })
+
+    return result
+
+
 @router.get("/confidence-history")
 async def get_confidence_history(days: int = Query(30, ge=7, le=180)):
     db = get_db()
@@ -178,11 +269,11 @@ async def get_confidence_history(days: int = Query(30, ge=7, le=180)):
     rows = []
     async for doc in db.predictions.aggregate(pipeline):
         rows.append({
-            "date": doc["_id"]["date"],
+            "date":  doc["_id"]["date"],
             "sport": doc["_id"]["sport"],
-            "avg": round(doc["avg"], 4),
-            "min": round(doc["min"], 4),
-            "max": round(doc["max"], 4),
+            "avg":   round(doc["avg"], 4),
+            "min":   round(doc["min"], 4),
+            "max":   round(doc["max"], 4),
             "count": doc["count"],
         })
     return rows
@@ -205,14 +296,16 @@ async def increment_quota(calls: int = 1):
     budget = int(live.get("budget", 200))
 
     existing_primary = await db.serper_quota.find_one({"_id": doc_id})
-    existing_legacy = await db.serpapi_quota.find_one({"_id": doc_id})
+    existing_legacy  = await db.serpapi_quota.find_one({"_id": doc_id})
     existing = existing_primary or existing_legacy
     current_used = existing.get("used", 0) if existing else 0
-    new_used = max(current_used, int(live.get("used", 0))) + calls
+    new_used  = max(current_used, int(live.get("used", 0))) + calls
     remaining = max(budget - new_used, 0)
 
-    payload = {"_id": doc_id, "month": month_key, "used": new_used,
-         "budget": budget, "remaining": remaining}
+    payload = {
+        "_id": doc_id, "month": month_key,
+        "used": new_used, "budget": budget, "remaining": remaining,
+    }
 
     await db.serper_quota.replace_one({"_id": doc_id}, payload, upsert=True)
     await db.serpapi_quota.replace_one({"_id": doc_id}, payload, upsert=True)
