@@ -158,7 +158,7 @@ async def _assign_prediction_groups_for_date(db, match_date: str) -> Dict[str, A
 # Prediction CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def create_prediction(request: PredictionRequest) -> PredictionOutput:
+async def create_prediction(request: PredictionRequest, force_refresh: bool = False) -> PredictionOutput:
     db = get_db()
     match_date = request.match_date or now_wat().strftime("%Y-%m-%d")
     sport      = str(request.sport.value)
@@ -179,7 +179,7 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
             )
 
     existing = await db.predictions.find_one({"match_id": match_id, "deleted_at": None})
-    if existing:
+    if existing and not force_refresh:
         ts = existing.get("timestamp")
         is_fresh = False
         if ts:
@@ -212,16 +212,22 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
             return PredictionOutput(**existing)
 
     logger.info(f"Generating: {request.home_team} vs {request.away_team} [{sport}]")
+    await log_system_event("prediction_pipeline", f"Started pipeline for {match_id}", "INFO")
 
+    logger.info("Prediction pipeline [%s]: fetching home team stats", match_id)
     home_stats = fetch_team_stats(request.home_team, sport)
+    logger.info("Prediction pipeline [%s]: fetching away team stats", match_id)
     away_stats = fetch_team_stats(request.away_team, sport)
 
+    logger.info("Prediction pipeline [%s]: fetching h2h + venue", match_id)
     h2h_venue = _fetch_combined_h2h_venue(request.home_team, request.away_team, sport)
     h2h   = h2h_venue["h2h"]
     venue = h2h_venue["venue"]
 
+    logger.info("Prediction pipeline [%s]: fetching odds", match_id)
     odds = fetch_betting_odds(request.home_team, request.away_team, sport)
 
+    logger.info("Prediction pipeline [%s]: building features + predicting", match_id)
     features = prediction_engine.features_from_data(
         home_stats, away_stats, h2h, odds, venue, sport=sport
     )
@@ -265,6 +271,7 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
     doc["deleted_at"] = None
     doc["match_date_indexed"] = match_date
     await db.predictions.replace_one({"match_id": match_id}, doc, upsert=True)
+    logger.info("Prediction pipeline [%s]: prediction persisted", match_id)
 
     snapshot = {
         "match_id": match_id, "sport": sport,
@@ -274,14 +281,41 @@ async def create_prediction(request: PredictionRequest) -> PredictionOutput:
         "h2h_raw": h2h, "odds_raw": odds, "features": features,
     }
     await db.feature_snapshots.replace_one({"match_id": match_id}, snapshot, upsert=True)
+    logger.info("Prediction pipeline [%s]: feature snapshot persisted", match_id)
 
     try:
-        await _assign_prediction_groups_for_date(db, match_date)
+        grouping_summary = await _assign_prediction_groups_for_date(db, match_date)
+        logger.info("Prediction pipeline [%s]: regrouped %s games into %s groups for %s",
+                    match_id, grouping_summary.get("games"), grouping_summary.get("groups"), match_date)
     except Exception as e:
         logger.warning(f"Could not assign prediction groups for {match_date}: {e}")
 
     await log_system_event("prediction_created", f"Prediction generated for {match_id}", "INFO")
+    await log_system_event("prediction_pipeline", f"Completed pipeline for {match_id}", "INFO")
     return output
+
+
+async def repredict_prediction(match_id: str) -> Optional[PredictionOutput]:
+    db = get_db()
+    existing = await db.predictions.find_one({"match_id": match_id, "deleted_at": None}, {"_id": 0})
+    if not existing:
+        return None
+
+    from app.schemas.prediction_schema import SportType
+    try:
+        sport_enum = SportType(str(existing.get("sport", "soccer")).lower())
+    except Exception:
+        sport_enum = SportType.SOCCER
+
+    request = PredictionRequest(
+        home_team=existing.get("home_team", ""),
+        away_team=existing.get("away_team", ""),
+        sport=sport_enum,
+        league=existing.get("league"),
+        match_date=existing.get("match_date"),
+        skip_validation=True,
+    )
+    return await create_prediction(request, force_refresh=True)
 
 
 async def get_predictions(

@@ -3,11 +3,13 @@
 1/1 Sports Prediction Engine — FastAPI application entry point.
 """
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from app.utils.timezone import WAT
 
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -57,6 +59,26 @@ app.add_middleware(
     allow_methods     = ["*"],
     allow_headers     = ["*"],
 )
+
+
+@app.middleware("http")
+async def log_all_requests(request: Request, call_next):
+    started = time.perf_counter()
+    logger.info("HTTP start %s %s from=%s", request.method, request.url.path, request.client.host if request.client else "-")
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("HTTP unhandled %s %s", request.method, request.url.path)
+        raise
+    duration_ms = (time.perf_counter() - started) * 1000
+    logger.info(
+        "HTTP end %s %s status=%s duration_ms=%.1f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 # ── Routers ───────────────────────────────────────────────────────────────────

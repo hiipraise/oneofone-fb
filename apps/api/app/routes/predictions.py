@@ -7,6 +7,7 @@ from app.schemas.prediction_schema import PredictionRequest, PredictionOutput, A
 from app.services.prediction_service import (
     create_prediction, get_predictions, get_prediction_by_id,
     save_actual_result, trigger_learning_update, soft_delete_prediction, restore_prediction,
+    repredict_prediction,
 )
 from app.services.match_validation_service import (
     fetch_available_leagues,
@@ -117,6 +118,20 @@ async def undelete_prediction(match_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{match_id}/repredict", response_model=PredictionOutput)
+async def repredict(match_id: str):
+    try:
+        result = await repredict_prediction(match_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Prediction not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Repredict error for %s: %s", match_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

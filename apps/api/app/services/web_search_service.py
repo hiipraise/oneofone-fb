@@ -16,6 +16,7 @@ Budget tracking now reflects Serper.dev's 2,500/month limit.
 DuckDuckGo calls are NOT quota-counted (they're free).
 """
 import json
+import asyncio
 import logging
 import re
 import time
@@ -140,6 +141,33 @@ def _quota_increment() -> None:
     data["count"] = data.get("count", 0) + 1
     _quota_save(data)
     logger.debug(f"Serper quota: {data['count']}/{MONTHLY_BUDGET} this month")
+    _persist_quota_increment_async()
+
+
+def _persist_quota_increment_async() -> None:
+    """
+    Mirror in-memory Serper usage to Mongo so dashboards stay accurate
+    across instances. Best effort only.
+    """
+    try:
+        from app.services.quota_service import record_serper_calls
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(record_serper_calls(1))
+            return
+        except RuntimeError:
+            pass
+
+        def _runner():
+            try:
+                asyncio.run(record_serper_calls(1))
+            except Exception as exc:
+                logger.debug(f"Serper quota persistence background task failed: {exc}")
+
+        threading.Thread(target=_runner, daemon=True).start()
+    except Exception as e:
+        logger.debug(f"Serper quota persistence skipped: {e}")
 
 
 def get_serper_usage() -> Dict:
