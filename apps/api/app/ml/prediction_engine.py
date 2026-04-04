@@ -732,7 +732,9 @@ class PredictionEngine:
             return {}
         probs_home, actuals = [], []
         for rec in records:
-            pred = self._sanitize_probabilities(np.array([rec.get("home_win_probability", 0.5)], dtype=np.float64))[0]
+            pred = self._sanitize_probabilities(
+                np.array([rec.get("home_win_probability", 0.5)], dtype=np.float64)
+            )[0]
             actual = rec.get("actual_outcome")
             if actual is None:
                 continue
@@ -742,7 +744,9 @@ class PredictionEngine:
         if len(probs_home) < 2:
             return {}
 
-        p  = np.array(probs_home)
+        # Protect metrics from edge probabilities (0/1) which can make log loss
+        # numerically unstable when a prediction is confidently wrong.
+        p  = np.clip(np.array(probs_home, dtype=np.float64), 1e-6, 1 - 1e-6)
         y  = np.array(actuals)
         ll = float(log_loss(y, p, labels=[0, 1]))
         bs = float(brier_score_loss(y, p))
@@ -753,7 +757,11 @@ class PredictionEngine:
         bin_edges = np.linspace(0, 1, n_bins + 1)
         ece = 0.0
         for i in range(n_bins):
-            mask = (p >= bin_edges[i]) & (p < bin_edges[i + 1])
+            # Include p==1.0 in the final bucket so all samples contribute.
+            if i == n_bins - 1:
+                mask = (p >= bin_edges[i]) & (p <= bin_edges[i + 1])
+            else:
+                mask = (p >= bin_edges[i]) & (p < bin_edges[i + 1])
             if mask.sum() > 0:
                 ece += mask.sum() * abs(p[mask].mean() - y[mask].mean())
         ece = float(ece / max(len(p), 1))
