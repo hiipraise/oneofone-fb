@@ -29,7 +29,15 @@ async def list_results(limit: int = Query(50, ge=1, le=200)):
     prediction_map = {}
 
     if match_ids:
-        async for pred in db.predictions.find({"match_id": {"$in": match_ids}}):
+        async for pred in db.predictions.find(
+    {"match_id": {"$in": match_ids}},
+    {   # only fetch the fields actually used below
+        "match_id": 1, "home_team": 1, "away_team": 1,
+        "sport": 1, "league": 1, "predicted_outcome": 1,
+        "confidence_score": 1, "home_win_probability": 1,
+        "away_win_probability": 1, "draw_probability": 1,
+    }
+):
             pred.pop("_id", None)
             match_id = pred.get("match_id")
             if match_id:

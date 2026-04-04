@@ -51,37 +51,6 @@ _mem_cache: Dict[str, Dict] = {}
 _quota_state: Dict[str, Any] = {"month": "", "count": 0}
 
 
-def _load_disk_cache() -> None:
-    if not ENABLE_FILE_CACHE:
-        return
-    global _mem_cache
-    disk_cache_path = "data/search_cache.json"
-    import os
-    if os.path.exists(disk_cache_path):
-        try:
-            with open(disk_cache_path, "r") as f:
-                _mem_cache = json.load(f)
-            now = time.time()
-            _mem_cache = {
-                k: v for k, v in _mem_cache.items()
-                if now - v["ts"] < v.get("ttl", CACHE_TTL_MEDIUM)
-            }
-            logger.info(f"Disk cache loaded: {len(_mem_cache)} entries")
-        except Exception as e:
-            logger.warning(f"Failed to load disk cache: {e}")
-            _mem_cache = {}
-
-
-def _save_disk_cache() -> None:
-    if not ENABLE_FILE_CACHE:
-        return
-    try:
-        with open("data/search_cache.json", "w") as f:
-            json.dump(_mem_cache, f)
-    except Exception as e:
-        logger.debug(f"Disk cache save failed: {e}")
-
-
 def _cache_key(ns: str, params: Optional[dict] = None) -> str:
     return hashlib.md5((ns + str(sorted((params or {}).items()))).encode()).hexdigest()
 
@@ -95,8 +64,6 @@ def _get_cached(key: str) -> Optional[Any]:
 
 def _set_cache(key: str, data: Any, ttl: int = CACHE_TTL_MEDIUM) -> None:
     _mem_cache[key] = {"ts": time.time(), "data": data, "ttl": ttl}
-    if len(_mem_cache) % 20 == 0:
-        _save_disk_cache()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -958,7 +925,3 @@ def _extract_float(text: str, pattern: str) -> Optional[float]:
         except (ValueError, IndexError):
             pass
     return None
-
-
-# ── Startup ───────────────────────────────────────────────────────────────────
-_load_disk_cache()

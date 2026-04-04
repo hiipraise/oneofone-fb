@@ -64,7 +64,9 @@ async def get_metrics_summary():
             if sport in records_by_sport:
                 records_by_sport[sport].append({
                 "home_win_probability": pred.get("home_win_probability", 0.5),
-                "actual_outcome": actual_outcome,
+                "draw_probability":     pred.get("draw_probability",     0.0),
+                "away_win_probability": pred.get("away_win_probability", 0.5),
+                "actual_outcome":       actual_outcome,
                 })
 
     performance_metrics_by_sport: dict[str, dict[str, float | int | None]] = {}

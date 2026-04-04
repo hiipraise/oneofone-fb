@@ -30,9 +30,8 @@ export default function HistoryPage() {
   const { data, loading, error, refetch } = usePredictions(
     sport === 'all' ? null : sport,
     200,
-    15000,
   )
-  const { data: results = [] } = useResults(200, 10000)
+  const { data: results = [] } = useResults(200)
   const { data: summary } = useMetricsSummary()
   const engineStatusBySport = summary?.is_trained || null
 

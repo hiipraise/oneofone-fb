@@ -814,47 +814,82 @@ class PredictionEngine:
     def evaluate(self, records: List[Dict], sport: str = "soccer") -> Dict[str, float]:
         if not records:
             return {}
-        probs_home, actuals = [], []
+
+        entries = []
         for rec in records:
-            pred = self._sanitize_probabilities(
-                np.array([rec.get("home_win_probability", 0.5)], dtype=np.float64)
-            )[0]
             actual = rec.get("actual_outcome")
             if actual is None:
                 continue
-            probs_home.append(float(pred))
-            actuals.append(1 if actual == "home_win" else 0)
+            ph  = float(np.clip(rec.get("home_win_probability", 0.5), 1e-9, 1 - 1e-9))
+            pd_ = float(np.clip(rec.get("draw_probability",      0.0), 1e-9, 1 - 1e-9))
+            pa  = float(np.clip(rec.get("away_win_probability",  0.5), 1e-9, 1 - 1e-9))
+            # renormalise in case stored values don't sum to 1 exactly
+            total = ph + pd_ + pa
+            if total > 0:
+                ph, pd_, pa = ph / total, pd_ / total, pa / total
+            entries.append((ph, pd_, pa, actual))
 
-        if len(probs_home) < 2:
+        if len(entries) < 2:
             return {}
 
-        # Protect metrics from edge probabilities (0/1) which can make log loss
-        # numerically unstable when a prediction is confidently wrong.
-        p  = np.clip(np.array(probs_home, dtype=np.float64), 1e-6, 1 - 1e-6)
-        y  = np.array(actuals)
-        ll = float(log_loss(y, p, labels=[0, 1]))
-        bs = float(brier_score_loss(y, p))
-        predicted_home = (p >= 0.5).astype(int)
-        accuracy = float(np.mean(predicted_home == y))
+        n = len(entries)
+        ph_arr  = np.array([e[0] for e in entries])
+        pd_arr  = np.array([e[1] for e in entries])
+        pa_arr  = np.array([e[2] for e in entries])
+        y_home  = np.array([1.0 if e[3] == "home_win"  else 0.0 for e in entries])
+        y_draw  = np.array([1.0 if e[3] == "draw"       else 0.0 for e in entries])
+        y_away  = np.array([1.0 if e[3] == "away_win"  else 0.0 for e in entries])
 
-        n_bins = 10
-        bin_edges = np.linspace(0, 1, n_bins + 1)
-        ece = 0.0
-        for i in range(n_bins):
-            # Include p==1.0 in the final bucket so all samples contribute.
-            if i == n_bins - 1:
-                mask = (p >= bin_edges[i]) & (p <= bin_edges[i + 1])
-            else:
-                mask = (p >= bin_edges[i]) & (p < bin_edges[i + 1])
-            if mask.sum() > 0:
-                ece += mask.sum() * abs(p[mask].mean() - y[mask].mean())
-        ece = float(ece / max(len(p), 1))
+        is_basketball = sport == "basketball"
+
+        # ── Multiclass Brier Score ────────────────────────────────────────────────
+        bs = float(np.mean(
+            (ph_arr - y_home) ** 2 +
+            (pd_arr - y_draw) ** 2 +
+            (pa_arr - y_away) ** 2
+        ))
+
+        # ── Multiclass Log Loss ───────────────────────────────────────────────────
+        eps = 1e-9
+        ll = -float(np.mean(
+            y_home * np.log(np.clip(ph_arr, eps, 1.0)) +
+            y_draw * np.log(np.clip(pd_arr, eps, 1.0)) +
+            y_away * np.log(np.clip(pa_arr, eps, 1.0))
+        ))
+
+        # ── Accuracy (argmax) ─────────────────────────────────────────────────────
+        stacked    = np.stack([ph_arr, pd_arr, pa_arr], axis=1)
+        pred_class = np.argmax(stacked, axis=1)          # 0=home 1=draw 2=away
+        true_class = np.where(y_home == 1, 0, np.where(y_draw == 1, 1, 2))
+        accuracy   = float(np.mean(pred_class == true_class))
+
+        # ── ECE averaged across all outcome heads ─────────────────────────────────
+        outcome_pairs = [(ph_arr, y_home), (pa_arr, y_away)]
+        if not is_basketball:
+            outcome_pairs.append((pd_arr, y_draw))
+
+        n_bins     = 10
+        bin_edges  = np.linspace(0.0, 1.0, n_bins + 1)
+        ece_total  = 0.0
+        for p_arr, y_arr in outcome_pairs:
+            for i in range(n_bins):
+                mask = (
+                    (p_arr >= bin_edges[i]) & (p_arr <= bin_edges[i + 1])
+                    if i == n_bins - 1
+                    else (p_arr >= bin_edges[i]) & (p_arr < bin_edges[i + 1])
+                )
+                if mask.sum() > 0:
+                    ece_total += mask.sum() * abs(p_arr[mask].mean() - y_arr[mask].mean())
+        ece = float(ece_total / (max(n, 1) * len(outcome_pairs)))
 
         return {
-            "brier_score": round(bs, 4), "log_loss": round(ll, 4),
-            "calibration_error": round(ece, 4), "accuracy": round(accuracy, 4),
-            "total_predictions": len(probs_home), "sport": sport,
-            "ml_weight": round(self._ml_weight(sport), 3),
+            "brier_score":        round(bs,       4),
+            "log_loss":           round(ll,       4),
+            "calibration_error":  round(ece,      4),
+            "accuracy":           round(accuracy, 4),
+            "total_predictions":  n,
+            "sport":              sport,
+            "ml_weight":          round(self._ml_weight(sport), 3),
             "n_training_samples": self.n_training_samples.get(sport, 0),
         }
 

@@ -652,6 +652,8 @@ async def _trigger_learning_update_impl(db) -> None:
             "actual_outcome":       actual,
             "predicted_outcome":    pred.get("predicted_outcome"),
             "home_win_probability": pred.get("home_win_probability"),
+            "draw_probability":     pred.get("draw_probability", 0.0),
+            "away_win_probability": pred.get("away_win_probability"),
             "match_date":           snap.get("match_date", "") if snap else "",
         })
 
