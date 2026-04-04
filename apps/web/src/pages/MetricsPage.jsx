@@ -383,6 +383,8 @@ export default function MetricsPage() {
     (safeHistoryPage - 1) * HISTORY_PAGE_SIZE,
     safeHistoryPage * HISTORY_PAGE_SIZE,
   );
+  const aggregateMetrics = summary?.performance_metrics_all_sports ?? {};
+  const metricsBySport = summary?.performance_metrics_by_sport ?? {};
 
   const handleTriggerLearning = async () => {
     setTriggering(true);
@@ -447,7 +449,17 @@ export default function MetricsPage() {
 
       {/* Current performance */}
       <section>
-        <p className="label mb-3">CURRENT PERFORMANCE</p>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <p className="label">CURRENT PERFORMANCE</p>
+          {!!Object.keys(metricsBySport).length && (
+            <p className="font-display text-xs text-gray-600">
+              Aggregate shown across {Object.keys(metricsBySport).length} sports
+              {aggregateMetrics.accuracy != null
+                ? ` · ${(aggregateMetrics.accuracy * 100).toFixed(1)}% acc`
+                : ""}
+            </p>
+          )}
+        </div>
         <ModelStatsPanel summary={summary} loading={summaryLoading} />
       </section>
 

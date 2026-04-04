@@ -139,6 +139,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
   const mlWeights = modelSummary?.ml_weights         ?? { soccer: 0, basketball: 0 }
   const nSamples  = modelSummary?.n_training_samples ?? { soccer: 0, basketball: 0 }
   const isTrained = modelSummary?.is_trained         ?? { soccer: false, basketball: false }
+  const allSportsMetrics = modelSummary?.performance_metrics_all_sports ?? {}
 
   return (
     <aside className={`
@@ -246,17 +247,17 @@ export default function Sidebar({ isOpen = false, onClose }) {
                 </span>
               </div>
 
-              {modelSummary.performance_metrics?.accuracy != null && (
+              {allSportsMetrics?.accuracy != null && (
                 <div className="flex items-center justify-between">
                   <span className="font-display text-xs text-gray-600">ACCURACY</span>
                   <span className={`font-display text-xs tabular-nums ${
-                    modelSummary.performance_metrics.accuracy > 0.6
+                    allSportsMetrics.accuracy > 0.6
                       ? 'text-brand-greenlight'
-                      : modelSummary.performance_metrics.accuracy > 0.5
+                      : allSportsMetrics.accuracy > 0.5
                       ? 'text-yellow-500'
                       : 'text-brand-redlight'
                   }`}>
-                    {(modelSummary.performance_metrics.accuracy * 100).toFixed(1)}%
+                    {(allSportsMetrics.accuracy * 100).toFixed(1)}%
                   </span>
                 </div>
               )}
@@ -297,18 +298,18 @@ export default function Sidebar({ isOpen = false, onClose }) {
                 ))}
               </div>
 
-              {modelSummary.performance_metrics?.brier_score != null && (
+              {allSportsMetrics?.brier_score != null && (
                 <div className="pt-1.5 border-t border-brand-midgray">
                   <div className="flex items-center justify-between">
                     <span className="font-display text-xs text-gray-600">BRIER</span>
                     <span className={`font-display text-xs tabular-nums ${
-                      modelSummary.performance_metrics.brier_score < 0.20
+                      allSportsMetrics.brier_score < 0.20
                         ? 'text-brand-greenlight'
-                        : modelSummary.performance_metrics.brier_score < 0.25
+                        : allSportsMetrics.brier_score < 0.25
                         ? 'text-yellow-500'
                         : 'text-brand-redlight'
                     }`}>
-                      {modelSummary.performance_metrics.brier_score.toFixed(4)}
+                      {allSportsMetrics.brier_score.toFixed(4)}
                     </span>
                   </div>
                 </div>

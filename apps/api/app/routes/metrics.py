@@ -39,7 +39,7 @@ async def get_metrics_summary():
     async for doc in db.actual_results.find({}):
         actual_results[doc["match_id"]] = doc.get("actual_outcome")
 
-    records = []
+    records_by_sport: dict[str, list[dict[str, object]]] = {s: [] for s in sports}
     db_sport_counts: dict[str, int] = {s: 0 for s in sports}
     sport_accuracy = {s: {"correct": 0, "count": 0} for s in sports}
     sport_confidence = {s: [] for s in sports}
@@ -59,16 +59,42 @@ async def get_metrics_summary():
                 confidence = pred.get("confidence_score")
                 if confidence is not None:
                     sport_confidence[sport].append(float(confidence))
-            records.append({
+            if sport in records_by_sport:
+                records_by_sport[sport].append({
                 "home_win_probability": pred.get("home_win_probability", 0.5),
                 "actual_outcome": actual_outcome,
-            })
+                })
 
-    try:
-        metrics = prediction_engine.evaluate(records) if records else {}
-    except Exception as e:
-        logger.error(f"evaluate() failed in summary: {e}")
-        metrics = {}
+    performance_metrics_by_sport: dict[str, dict[str, float | int | None]] = {}
+    for sport in sports:
+        sport_records = records_by_sport.get(sport, [])
+        if not sport_records:
+            continue
+        try:
+            performance_metrics_by_sport[sport] = prediction_engine.evaluate(
+                sport_records,
+                sport=sport,
+            )
+        except Exception as e:
+            logger.error(f"evaluate() failed in summary for sport '{sport}': {e}")
+            performance_metrics_by_sport[sport] = {}
+
+    weighted_metric_totals: dict[str, float] = {}
+    weighted_metric_weights: dict[str, int] = {}
+    for sport, metrics in performance_metrics_by_sport.items():
+        weight = len(records_by_sport.get(sport, []))
+        if weight <= 0:
+            continue
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                weighted_metric_totals[key] = weighted_metric_totals.get(key, 0.0) + (float(value) * weight)
+                weighted_metric_weights[key] = weighted_metric_weights.get(key, 0) + weight
+
+    performance_metrics_all_sports = {
+        key: round(weighted_metric_totals[key] / weighted_metric_weights[key], 6)
+        for key in weighted_metric_totals
+        if weighted_metric_weights.get(key)
+    }
 
     total_preds = await db.predictions.count_documents({})
     total_results = await db.actual_results.count_documents({})
@@ -106,7 +132,8 @@ async def get_metrics_summary():
     }
 
     return {
-        "performance_metrics": metrics,
+        "performance_metrics_all_sports": performance_metrics_all_sports,
+        "performance_metrics_by_sport": performance_metrics_by_sport,
         "sport_breakdown": sport_breakdown,
         "total_predictions": total_preds,
         "total_resolved": total_results,
