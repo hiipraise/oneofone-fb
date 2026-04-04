@@ -56,7 +56,6 @@ export default function HistoryPage() {
         hits: 0,
         highRisk: false,
         sports: new Set(),
-        gameRows: [],
       }
 
       existing.games += 1
@@ -64,21 +63,6 @@ export default function HistoryPage() {
       if (pred.sport) existing.sports.add(pred.sport)
 
       const resolved = resolvedMatches[pred.match_id]
-      const gameStatus = !resolved?.actual_outcome
-        ? 'pending'
-        : resolved.actual_outcome === pred.predicted_outcome
-          ? 'correct'
-          : 'miss'
-
-      existing.gameRows.push({
-        matchId: pred.match_id,
-        homeTeam: pred.home_team,
-        awayTeam: pred.away_team,
-        predictedOutcome: pred.predicted_outcome,
-        actualOutcome: resolved?.actual_outcome || null,
-        status: gameStatus,
-      })
-
       if (resolved?.actual_outcome) {
         existing.resolved += 1
         if (resolved.actual_outcome === pred.predicted_outcome) {
@@ -99,7 +83,6 @@ export default function HistoryPage() {
           status: isResolved ? (g.hits === g.games ? 'won' : 'lost') : 'pending',
           hitRate,
           sportsLabel: Array.from(g.sports).join(', ').toUpperCase() || '—',
-          gameRows: g.gameRows,
         }
       })
       .sort((a, b) => String(b.matchDate).localeCompare(String(a.matchDate)))
@@ -258,86 +241,44 @@ export default function HistoryPage() {
             <table className="w-full">
               <thead className="border-b border-brand-midgray bg-brand-darkgray">
                 <tr>
-                  {['GROUP', 'DATE', 'SPORTS', 'GAMES', 'HIT RATE', 'STATUS', 'DETAILS'].map((h) => (
+                  {['GROUP', 'DATE', 'SPORTS', 'GAMES', 'HIT RATE', 'STATUS'].map((h) => (
                     <th key={h} className="text-left label px-4 py-3">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {groupHistory.map((g) => (
-                  <React.Fragment key={g.groupId}>
-                    <tr className="border-b border-brand-midgray hover:bg-brand-gray transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-display text-xs text-white">{g.groupId}</span>
-                          {g.highRisk && (
-                            <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
-                              HIGH RISK
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 font-display text-xs text-gray-500">{g.matchDate || '—'}</td>
-                      <td className="px-4 py-3 font-display text-xs text-gray-400">{g.sportsLabel}</td>
-                      <td className="px-4 py-3 font-display text-xs text-white tabular-nums">
-                        {g.resolved}/{g.games}
-                      </td>
-                      <td className="px-4 py-3 font-display text-xs tabular-nums text-gray-400">
-                        {Math.round(g.hitRate * 100)}%
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
-                          g.status === 'won'
-                            ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
-                            : g.status === 'lost'
-                              ? 'text-brand-redlight bg-brand-reddark border-brand-red'
-                              : 'text-gray-400 border-brand-midgray'
-                        }`}>
-                          {g.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setExpandedGroupId(prev => prev === g.groupId ? null : g.groupId)}
-                          className="btn-ghost text-xs"
-                        >
-                          {expandedGroupId === g.groupId ? 'HIDE GAMES' : 'VIEW GAMES'}
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedGroupId === g.groupId && (
-                      <tr className="border-b border-brand-midgray bg-brand-darkgray">
-                        <td colSpan={7} className="px-4 py-3">
-                          <div className="space-y-2">
-                            {g.gameRows.map((game) => (
-                              <div key={game.matchId} className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                <p className="font-display text-gray-300">
-                                  {game.homeTeam} <span className="text-gray-600">vs</span> {game.awayTeam}
-                                </p>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-display text-gray-600">
-                                    Pred: {(game.predictedOutcome || '—').toUpperCase()}
-                                  </span>
-                                  <span className="font-display text-gray-700">
-                                    Actual: {(game.actualOutcome || 'pending').toUpperCase()}
-                                  </span>
-                                  <span className={`font-display px-2 py-0.5 rounded-sm border ${
-                                    game.status === 'correct'
-                                      ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
-                                      : game.status === 'miss'
-                                        ? 'text-brand-redlight bg-brand-reddark border-brand-red'
-                                        : 'text-gray-400 border-brand-midgray'
-                                  }`}>
-                                    {game.status.toUpperCase()}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <tr key={g.groupId} className="border-b border-brand-midgray hover:bg-brand-gray transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-display text-xs text-white">{g.groupId}</span>
+                        {g.highRisk && (
+                          <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
+                            HIGH RISK
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-display text-xs text-gray-500">{g.matchDate || '—'}</td>
+                    <td className="px-4 py-3 font-display text-xs text-gray-400">{g.sportsLabel}</td>
+                    <td className="px-4 py-3 font-display text-xs text-white tabular-nums">
+                      {g.resolved}/{g.games}
+                    </td>
+                    <td className="px-4 py-3 font-display text-xs tabular-nums text-gray-400">
+                      {Math.round(g.hitRate * 100)}%
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+                        g.status === 'won'
+                          ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+                          : g.status === 'lost'
+                            ? 'text-brand-redlight bg-brand-reddark border-brand-red'
+                            : 'text-gray-400 border-brand-midgray'
+                      }`}>
+                        {g.status.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
