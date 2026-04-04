@@ -108,6 +108,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
     import requests
 
     today = datetime.now(WAT).strftime("%Y-%m-%d")
+    now_utc = datetime.now(timezone.utc)
     sport_keys = SPORT_KEYS.get(sport, SPORT_KEYS["soccer"])
     should_fallback_to_espn = not bool(settings.ODDS_API_KEY)
 
@@ -151,8 +152,16 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                         continue
 
                     for game in resp.json():
-                        if not game.get("commence_time", "").startswith(today):
+                        commence_time = game.get("commence_time", "")
+                        if not commence_time.startswith(today):
                             continue
+                        try:
+                            kickoff_utc = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+                            if kickoff_utc <= now_utc:
+                                continue
+                        except Exception:
+                            # Keep fixture if timestamp is malformed rather than dropping potentially valid games.
+                            pass
                         game_key = (
                             game.get("home_team", "").lower(),
                             game.get("away_team", "").lower(),

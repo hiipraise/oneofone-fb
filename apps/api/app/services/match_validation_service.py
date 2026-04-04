@@ -489,6 +489,7 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
         return []
 
     today = now_wat().strftime("%Y-%m-%d")
+    now_utc = datetime.now(timezone.utc)
     fixtures: List[Dict] = []
     seen: set[tuple[str, str, str]] = set()
 
@@ -505,6 +506,13 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
                 commence = event.get("date", "")
                 if commence[:10] != today:
                     continue
+                try:
+                    kickoff_utc = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                    if kickoff_utc <= now_utc:
+                        continue
+                except Exception:
+                    # Keep fixture if timestamp is malformed rather than dropping potentially valid games.
+                    pass
 
                 competition = (event.get("competitions") or [{}])[0]
                 competitors = competition.get("competitors") or []
