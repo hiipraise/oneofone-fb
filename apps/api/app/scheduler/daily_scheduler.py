@@ -19,7 +19,7 @@ Log document shape (required by scheduler route):
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.utils.timezone import WAT
 from typing import List, Dict, Any
 
@@ -107,7 +107,14 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
     """Fetch upcoming fixtures for today from the Odds API, then fall back to ESPN."""
     import requests
 
-    today = datetime.now(WAT).strftime("%Y-%m-%d")
+    now_wat_dt = datetime.now(WAT)
+    today = now_wat_dt.strftime("%Y-%m-%d")
+    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    allowed_dates = {today}
+    if sport.lower() == "basketball":
+        # NBA fixtures in WAT frequently roll into the next calendar day after midnight.
+        allowed_dates.add(tomorrow)
+
     now_utc = datetime.now(timezone.utc)
     sport_keys = SPORT_KEYS.get(sport, SPORT_KEYS["soccer"])
     should_fallback_to_espn = not bool(settings.ODDS_API_KEY)
@@ -153,11 +160,12 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
 
                     for game in resp.json():
                         commence_time = game.get("commence_time", "")
-                        if not commence_time.startswith(today):
+                        match_date = commence_time[:10]
+                        if match_date not in allowed_dates:
                             continue
                         try:
                             kickoff_utc = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-                            if kickoff_utc <= now_utc:
+                            if match_date == today and kickoff_utc <= now_utc:
                                 continue
                         except Exception:
                             # Keep fixture if timestamp is malformed rather than dropping potentially valid games.
@@ -165,7 +173,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                         game_key = (
                             game.get("home_team", "").lower(),
                             game.get("away_team", "").lower(),
-                            today,
+                            match_date,
                         )
                         if game_key in seen:
                             continue
@@ -174,7 +182,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                             "home_team": game.get("home_team", ""),
                             "away_team": game.get("away_team", ""),
                             "sport": sport,
-                            "match_date": today,
+                            "match_date": match_date,
                             "league": game.get("sport_title", ""),
                             "source": "odds_api",
                         })

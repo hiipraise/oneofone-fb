@@ -6,7 +6,7 @@ Supports: soccer and basketball only.
 import logging
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.utils.timezone import now_wat, WAT
 from typing import Dict, List, Optional, Any
 
@@ -302,7 +302,12 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
         logger.warning(f"Unsupported sport for fixture fetch: {sport}")
         return []
 
-    today = now_wat().strftime("%Y-%m-%d")
+    now_wat_dt = now_wat()
+    today = now_wat_dt.strftime("%Y-%m-%d")
+    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    allowed_dates = {today}
+    if sport == "basketball":
+        allowed_dates.add(tomorrow)
     fixtures: List[Dict] = []
     seen: set = set()
 
@@ -323,7 +328,8 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
 
             for event in resp.json():
                 commence = event.get("commence_time", "")
-                if commence[:10] != today:
+                match_date = commence[:10]
+                if match_date not in allowed_dates:
                     continue
                 fid = event.get("id", "")
                 if fid in seen:
@@ -336,7 +342,7 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
                     "sport": sport,
                     "league": sport_key.replace("_", " ").title(),
                     "league_id": sport_key,
-                    "match_date": today,
+                    "match_date": match_date,
                     "match_time": commence[11:16] if len(commence) > 10 else "",
                     "validated": True,
                     "source": "odds_api",
@@ -488,7 +494,12 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
     if not leagues:
         return []
 
-    today = now_wat().strftime("%Y-%m-%d")
+    now_wat_dt = now_wat()
+    today = now_wat_dt.strftime("%Y-%m-%d")
+    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    allowed_dates = {today}
+    if sport == "basketball":
+        allowed_dates.add(tomorrow)
     now_utc = datetime.now(timezone.utc)
     fixtures: List[Dict] = []
     seen: set[tuple[str, str, str]] = set()
@@ -504,11 +515,12 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
 
             for event in resp.json().get("events", []):
                 commence = event.get("date", "")
-                if commence[:10] != today:
+                match_date = commence[:10]
+                if match_date not in allowed_dates:
                     continue
                 try:
                     kickoff_utc = datetime.fromisoformat(commence.replace("Z", "+00:00"))
-                    if kickoff_utc <= now_utc:
+                    if match_date == today and kickoff_utc <= now_utc:
                         continue
                 except Exception:
                     # Keep fixture if timestamp is malformed rather than dropping potentially valid games.
@@ -526,7 +538,7 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
                 if not home_name or not away_name:
                     continue
 
-                dedupe_key = (home_name.lower(), away_name.lower(), today)
+                dedupe_key = (home_name.lower(), away_name.lower(), match_date)
                 if dedupe_key in seen:
                     continue
                 seen.add(dedupe_key)
@@ -538,7 +550,7 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
                     "sport": sport,
                     "league": league_name,
                     "league_id": league,
-                    "match_date": today,
+                    "match_date": match_date,
                     "match_time": commence[11:16] if len(commence) > 10 else "",
                     "validated": True,
                     "source": "espn",
