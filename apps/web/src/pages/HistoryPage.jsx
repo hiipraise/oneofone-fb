@@ -19,6 +19,7 @@ export default function HistoryPage() {
 
   const [sport, setSport]       = useState(validSport)
   const [view, setView]         = useState('table')
+  const [expandedGroupId, setExpandedGroupId] = useState(null)
   const [search, setSearch]     = useState('')
   const [resultForm, setResultForm] = useState({
     matchId: '', homeScore: '', awayScore: '', date: todayISO(),
