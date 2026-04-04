@@ -56,6 +56,8 @@ export default function HistoryPage() {
         hits: 0,
         highRisk: false,
         sports: new Set(),
+        groupIndex: pred.prediction_group_index || null,
+        gameItems: [],
       }
 
       existing.games += 1
@@ -63,12 +65,24 @@ export default function HistoryPage() {
       if (pred.sport) existing.sports.add(pred.sport)
 
       const resolved = resolvedMatches[pred.match_id]
-      if (resolved?.actual_outcome) {
+      const isResolved = !!resolved?.actual_outcome
+      const isCorrect = isResolved && resolved.actual_outcome === pred.predicted_outcome
+
+      if (isResolved) {
         existing.resolved += 1
-        if (resolved.actual_outcome === pred.predicted_outcome) {
-          existing.hits += 1
-        }
+        if (isCorrect) existing.hits += 1
       }
+
+      existing.gameItems.push({
+        matchId: pred.match_id,
+        homeTeam: pred.home_team,
+        awayTeam: pred.away_team,
+        league: pred.league,
+        predictedOutcome: pred.predicted_outcome,
+        actualOutcome: resolved?.actual_outcome || null,
+        isResolved,
+        isCorrect,
+      })
 
       groups.set(groupId, existing)
     }
@@ -83,6 +97,7 @@ export default function HistoryPage() {
           status: isResolved ? (g.hits === g.games ? 'won' : 'lost') : 'pending',
           hitRate,
           sportsLabel: Array.from(g.sports).join(', ').toUpperCase() || '—',
+          groupLabel: g.groupIndex ? `G${g.groupIndex}` : 'GROUP',
         }
       })
       .sort((a, b) => String(b.matchDate).localeCompare(String(a.matchDate)))
@@ -248,10 +263,14 @@ export default function HistoryPage() {
               </thead>
               <tbody>
                 {groupHistory.map((g) => (
-                  <tr key={g.groupId} className="border-b border-brand-midgray hover:bg-brand-gray transition-colors">
+                  <React.Fragment key={g.groupId}>
+                  <tr
+                    className="border-b border-brand-midgray hover:bg-brand-gray transition-colors cursor-pointer"
+                    onClick={() => setExpandedGroupId(prev => (prev === g.groupId ? null : g.groupId))}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="font-display text-xs text-white">{g.groupId}</span>
+                        <span className="font-display text-xs text-white">{g.groupLabel} · {g.groupId}</span>
                         {g.highRisk && (
                           <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
                             HIGH RISK
@@ -279,6 +298,41 @@ export default function HistoryPage() {
                       </span>
                     </td>
                   </tr>
+                  {expandedGroupId === g.groupId && (
+                    <tr className="border-b border-brand-midgray bg-brand-darkgray/30">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="space-y-2">
+                          {g.gameItems.map((item) => (
+                            <div key={item.matchId} className="flex flex-wrap items-center justify-between gap-2 bg-brand-gray/40 border border-brand-midgray rounded-sm px-3 py-2">
+                              <div>
+                                <p className="font-display text-xs text-white">
+                                  {item.homeTeam} <span className="text-gray-600">vs</span> {item.awayTeam}
+                                </p>
+                                <p className="font-display text-[10px] text-gray-600">
+                                  {item.league || '—'} · {item.matchId}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-gray-300 border-brand-midgray">
+                                  PRED: {item.predictedOutcome ? item.predictedOutcome.replace('_', ' ').toUpperCase() : '—'}
+                                </span>
+                                <span className={`font-display text-[10px] px-2 py-0.5 rounded-sm border ${
+                                  item.isResolved
+                                    ? item.isCorrect
+                                      ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+                                      : 'text-brand-redlight bg-brand-reddark border-brand-red'
+                                    : 'text-gray-400 border-brand-midgray'
+                                }`}>
+                                  {item.isResolved ? (item.isCorrect ? 'CORRECT' : 'MISS') : 'PENDING'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
