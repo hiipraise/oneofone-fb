@@ -99,7 +99,7 @@ async def get_metrics_summary():
     }
 
     total_preds = await db.predictions.count_documents({})
-    total_resolved_scored = len(records)
+    total_resolved_scored = sum(len(v) for v in records_by_sport.values())
 
     n_training = {
         s: max(
