@@ -17,11 +17,13 @@ Learning update isolation
     share the main connection's TLS session.
 """
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.utils.timezone import now_wat, WAT
 from typing import Dict, Optional, List, Any
 
@@ -41,6 +43,7 @@ from app.ml.prediction_engine import prediction_engine
 from app.utils.logging_util import log_system_event
 
 _PREDICTION_TTL_HOURS = 12
+_EXTERNAL_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +157,46 @@ async def _assign_prediction_groups_for_date(db, match_date: str) -> Dict[str, A
     return {"groups": len(group_docs), "games": len(ranked)}
 
 
+def _external_cache_key(namespace: str, payload: Dict[str, Any]) -> str:
+    canon = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(f"{namespace}:{canon}".encode("utf-8")).hexdigest()
+    return f"{namespace}:{digest}"
+
+
+async def _get_external_cache(db, key: str) -> Optional[Any]:
+    now = now_wat()
+    doc = await db.external_api_cache.find_one({"key": key, "expires_at": {"$gt": now}}, {"_id": 0, "data": 1})
+    if doc:
+        return doc.get("data")
+    return None
+
+
+async def _set_external_cache(db, key: str, data: Any, ttl_seconds: int = _EXTERNAL_CACHE_TTL_SECONDS) -> None:
+    now = now_wat()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    await db.external_api_cache.replace_one(
+        {"key": key},
+        {
+            "key": key,
+            "data": data,
+            "created_at": now,
+            "expires_at": expires_at,
+        },
+        upsert=True,
+    )
+
+
+async def _get_or_set_external_cache(db, namespace: str, payload: Dict[str, Any], fetch_fn, ttl_seconds: int = _EXTERNAL_CACHE_TTL_SECONDS) -> Any:
+    key = _external_cache_key(namespace, payload)
+    cached = await _get_external_cache(db, key)
+    if cached is not None:
+        return cached
+
+    data = fetch_fn()
+    await _set_external_cache(db, key, data, ttl_seconds=ttl_seconds)
+    return data
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Prediction CRUD
 # ─────────────────────────────────────────────────────────────────────────────
@@ -215,17 +258,39 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
     await log_system_event("prediction_pipeline", f"Started pipeline for {match_id}", "INFO")
 
     logger.info("Prediction pipeline [%s]: fetching home team stats", match_id)
-    home_stats = fetch_team_stats(request.home_team, sport)
+    home_stats = await _get_or_set_external_cache(
+        db,
+        "team_stats",
+        {"team": request.home_team.lower(), "sport": sport},
+        lambda: fetch_team_stats(request.home_team, sport),
+    )
     logger.info("Prediction pipeline [%s]: fetching away team stats", match_id)
-    away_stats = fetch_team_stats(request.away_team, sport)
+    away_stats = await _get_or_set_external_cache(
+        db,
+        "team_stats",
+        {"team": request.away_team.lower(), "sport": sport},
+        lambda: fetch_team_stats(request.away_team, sport),
+    )
 
     logger.info("Prediction pipeline [%s]: fetching h2h + venue", match_id)
-    h2h_venue = _fetch_combined_h2h_venue(request.home_team, request.away_team, sport)
-    h2h   = h2h_venue["h2h"]
+    h2h_venue = await _get_or_set_external_cache(
+        db,
+        "h2h_venue",
+        {"home": request.home_team.lower(), "away": request.away_team.lower(), "sport": sport},
+        lambda: _fetch_combined_h2h_venue(request.home_team, request.away_team, sport),
+        ttl_seconds=24 * 60 * 60,
+    )
+    h2h = h2h_venue["h2h"]
     venue = h2h_venue["venue"]
 
     logger.info("Prediction pipeline [%s]: fetching odds", match_id)
-    odds = fetch_betting_odds(request.home_team, request.away_team, sport)
+    odds = await _get_or_set_external_cache(
+        db,
+        "odds",
+        {"home": request.home_team.lower(), "away": request.away_team.lower(), "sport": sport},
+        lambda: fetch_betting_odds(request.home_team, request.away_team, sport),
+        ttl_seconds=20 * 60,
+    )
 
     logger.info("Prediction pipeline [%s]: building features + predicting", match_id)
     features = prediction_engine.features_from_data(
