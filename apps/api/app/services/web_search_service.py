@@ -30,6 +30,7 @@ import numpy as np
 import requests
 
 from app.config.settings import settings
+from app.services.sport_key_catalog import SPORT_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -812,25 +813,8 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _ODDS_SPORT_MAP = {
-    "soccer": [
-        "soccer_epl",
-        "soccer_spain_la_liga",
-        "soccer_germany_bundesliga",
-        "soccer_italy_serie_a",
-        "soccer_france_ligue_one",
-        "soccer_uefa_champs_league",
-        "soccer_uefa_europa_league",
-        "soccer_usa_mls",
-        "soccer_portugal_primeira_liga",
-        "soccer_netherlands_eredivisie",
-        "soccer_brazil_campeonato",
-        "soccer_argentina_primera_division",
-        "soccer_turkey_super_league",
-        "soccer_saudi_premier_league",
-        "soccer_mexico_ligamx",
-        "soccer_conmebol_copa_libertadores",
-    ],
-    "basketball": ["basketball_nba"],
+    "soccer": SPORT_KEYS["soccer"],
+    "basketball": SPORT_KEYS["basketball"],
 }
 
 
