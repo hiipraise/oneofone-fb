@@ -31,7 +31,8 @@ import time
 from app.services.web_search_service import get_serpapi_usage
 from app.services.quota_service import record_serpapi_calls
 from app.services.result_resolver import resolve_results
-from app.services.match_validation_service import SPORT_KEYS, fetch_espn_today_fixtures
+from app.services.match_validation_service import fetch_espn_today_fixtures
+from app.services.sport_key_catalog import SPORT_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +116,13 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
         # NBA fixtures in WAT frequently roll into the next calendar day after midnight.
         allowed_dates.add(tomorrow)
 
+    sport = sport.lower()
+    if sport not in SPORT_KEYS:
+        logger.warning(f"[scheduler] Unsupported sport for fixture fetch: {sport}")
+        return []
+
     now_utc = datetime.now(timezone.utc)
-    sport_keys = SPORT_KEYS.get(sport, SPORT_KEYS["soccer"])
+    sport_keys = SPORT_KEYS[sport]
     should_fallback_to_espn = not bool(settings.ODDS_API_KEY)
 
     if settings.ODDS_API_KEY:
@@ -126,6 +132,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                 seen = set()
                 auth_failed = False
                 for sport_key in sport_keys:
+                    key_fixture_count = 0
                     resp = requests.get(
                         f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds",
                         params={
@@ -138,6 +145,10 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                     )
 
                     if resp.status_code == 429:
+                        logger.info(
+                            "[scheduler] Odds API key result",
+                            extra={"sport_key": sport_key, "status_code": resp.status_code, "fixture_count": key_fixture_count},
+                        )
                         wait = [5.0, 15.0][min(attempt, 1)]
                         logger.warning(
                             f"[scheduler] Odds API 429 [{sport_key}] — "
@@ -148,6 +159,10 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                         break
 
                     if resp.status_code in (401, 403):
+                        logger.info(
+                            "[scheduler] Odds API key result",
+                            extra={"sport_key": sport_key, "status_code": resp.status_code, "fixture_count": key_fixture_count},
+                        )
                         logger.warning(f"[scheduler] Odds API {resp.status_code} for {sport_key}; falling back to ESPN")
                         auth_failed = True
                         should_fallback_to_espn = True
@@ -155,6 +170,10 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                         break
 
                     if resp.status_code != 200:
+                        logger.info(
+                            "[scheduler] Odds API key result",
+                            extra={"sport_key": sport_key, "status_code": resp.status_code, "fixture_count": key_fixture_count},
+                        )
                         logger.warning(f"[scheduler] Odds API {resp.status_code} for {sport_key}")
                         continue
 
@@ -179,6 +198,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                             continue
                         seen.add(game_key)
                         fixtures.append({
+                            "fixture_id": game.get("id", ""),
                             "home_team": game.get("home_team", ""),
                             "away_team": game.get("away_team", ""),
                             "sport": sport,
@@ -186,6 +206,16 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
                             "league": game.get("sport_title", ""),
                             "source": "odds_api",
                         })
+                        key_fixture_count += 1
+
+                    logger.info(
+                        "[scheduler] Odds API key result",
+                        extra={
+                            "sport_key": sport_key,
+                            "status_code": resp.status_code,
+                            "fixture_count": key_fixture_count,
+                        },
+                    )
 
                 if auth_failed:
                     break

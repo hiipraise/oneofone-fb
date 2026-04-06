@@ -13,39 +13,12 @@ from typing import Dict, List, Optional, Any
 import requests
 
 from app.config.settings import settings
+from app.services.sport_key_catalog import SPORT_KEYS
 from app.services.web_search_service import _cache_key, _get_cached, _set_cache
 
 logger = logging.getLogger(__name__)
 
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
-
-SPORT_KEYS: Dict[str, List[str]] = {
-    "soccer": [
-        "soccer_epl",
-        "soccer_spain_la_liga",
-        "soccer_germany_bundesliga",
-        "soccer_italy_serie_a",
-        "soccer_france_ligue_one",
-        "soccer_uefa_champs_league",
-        "soccer_uefa_europa_league",
-        "soccer_usa_mls",
-        "soccer_portugal_primeira_liga",
-        "soccer_netherlands_eredivisie",
-        "soccer_brazil_campeonato",
-        "soccer_argentina_primera_division",
-        "soccer_turkey_super_league",
-        "soccer_saudi_premier_league",
-        "soccer_mexico_ligamx",
-        "soccer_conmebol_copa_libertadores",
-    ],
-    "basketball": [
-        "basketball_nba",
-        "basketball_euroleague",
-        "basketball_ncaab",
-        "basketball_nbl",
-    ],
-}
-
 
 
 ESPN_SCOREBOARD_LEAGUES: Dict[str, List[tuple[str, str, str]]] = {
@@ -331,10 +304,15 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
                 match_date = commence[:10]
                 if match_date not in allowed_dates:
                     continue
-                fid = event.get("id", "")
-                if fid in seen:
+                game_key = (
+                    (event.get("home_team") or "").strip().lower(),
+                    (event.get("away_team") or "").strip().lower(),
+                    match_date,
+                )
+                if game_key in seen:
                     continue
-                seen.add(fid)
+                seen.add(game_key)
+                fid = event.get("id", "")
                 fixtures.append({
                     "fixture_id": fid,
                     "home_team": event.get("home_team"),
