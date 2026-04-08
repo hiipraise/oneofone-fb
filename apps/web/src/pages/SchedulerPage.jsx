@@ -51,6 +51,20 @@ function groupTag(row, groupStatusById) {
   if (!idx || !groupId) return <span className="tag-gray text-xs">UNGROUPED</span>;
 
   const status = groupStatusById[groupId];
+  if (status === "won") {
+    return (
+      <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-greenlight bg-brand-greendark border-brand-green">
+        G{idx} · GROUP WON
+      </span>
+    );
+  }
+  if (status === "lost") {
+    return (
+      <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
+        G{idx} · GROUP LOST
+      </span>
+    );
+  }
   if (status === "miss") {
     return (
       <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
@@ -144,7 +158,9 @@ function TodayTable({ fixtures, sport, loading }) {
     const map = {};
     for (const group of fixtures?.groups || []) {
       if (!group?.group_id) continue;
-      map[group.group_id] = group.is_high_risk_group ? "miss" : "correct";
+      map[group.group_id] =
+        group.group_status ||
+        (group.is_high_risk_group ? "miss" : "correct");
     }
     return map;
   }, [fixtures]);
@@ -196,6 +212,7 @@ function TodayTable({ fixtures, sport, loading }) {
             <tr>
               {[
                 "MATCH",
+                "RANK",
                 "LEAGUE",
                 "PREDICTION",
                 "GROUP",
@@ -229,6 +246,16 @@ function TodayTable({ fixtures, sport, loading }) {
                         {row.away_team}
                       </span>
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-display text-[10px] text-gray-400">
+                        TOP #{row.overall_rank ?? "—"}
+                      </span>
+                      <span className="font-display text-[10px] text-yellow-300">
+                        PLAY {row.play_rank ?? 0}/5
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className="font-display text-xs text-gray-600 truncate max-w-[120px] block">
@@ -320,15 +347,30 @@ function PredictionGroupsPanel({ fixtures, loading }) {
         >
           <div className="flex items-center justify-between mb-2">
             <p className="font-display text-sm text-white">{group.group_id}</p>
-            <span
-              className={`font-display text-[10px] px-2 py-0.5 rounded-sm border ${
-                group.is_high_risk_group
-                  ? "text-brand-redlight border-brand-red bg-brand-reddark"
-                  : "text-yellow-300 border-yellow-800 bg-yellow-900/20"
-              }`}
-            >
-              {group.is_high_risk_group ? "MOST LIKELY MISSES" : "LOWER RISK"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-yellow-300 border-yellow-800 bg-yellow-900/20">
+                RANK {group.group_index ?? "—"} · PLAY {group.play_rank ?? 0}/5
+              </span>
+              <span
+                className={`font-display text-[10px] px-2 py-0.5 rounded-sm border ${
+                  group.is_high_risk_group
+                    ? "text-brand-redlight border-brand-red bg-brand-reddark"
+                    : "text-yellow-300 border-yellow-800 bg-yellow-900/20"
+                }`}
+              >
+                {group.is_high_risk_group ? "MOST LIKELY MISSES" : "LOWER RISK"}
+              </span>
+              {group.group_status === "won" && (
+                <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-greenlight bg-brand-greendark border-brand-green">
+                  GROUP WON
+                </span>
+              )}
+              {group.group_status === "lost" && (
+                <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-redlight bg-brand-reddark border-brand-red">
+                  GROUP LOST
+                </span>
+              )}
+            </div>
           </div>
           <div className="space-y-1">
             {(group.games || []).map((g) => (
