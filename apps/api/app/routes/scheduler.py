@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.utils.timezone import WAT
 from typing import List, Optional
 
+
 from fastapi import APIRouter, HTTPException, Query
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -15,6 +16,50 @@ from app.scheduler.daily_scheduler import scheduler, run_daily_predictions, _SUP
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+
+
+def _play_rank_from_confidence(confidence: Optional[float]) -> int:
+    """Normalize confidence into an integer play rank from 0..5."""
+    if confidence is None:
+        return 0
+    c = max(0.0, min(1.0, float(confidence)))
+    if c >= 0.80:
+        return 5
+    if c >= 0.70:
+        return 4
+    if c >= 0.60:
+        return 3
+    if c >= 0.55:
+        return 2
+    if c > 0:
+        return 1
+    return 0
+
+
+def _normalize_timestamp_iso(value) -> Optional[str]:
+    """Normalize timestamp values to explicit WAT ISO strings."""
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return dt.astimezone(WAT).isoformat()
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(WAT).isoformat()
+        except Exception:
+            return raw
+
+    return str(value)
 
 
 def _require_db():
@@ -57,6 +102,7 @@ async def get_scheduler_status():
     )
     if last_log:
         last_log.pop("_id", None)
+        last_log["timestamp"] = _normalize_timestamp_iso(last_log.get("timestamp"))
 
     today = datetime.now(WAT).strftime("%Y-%m-%d")
     today_counts: dict[str, int] = {}
@@ -116,6 +162,7 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
         {"source": "daily_scheduler"}
     ).sort("timestamp", -1).limit(limit):
         doc.pop("_id", None)
+        doc["timestamp"] = _normalize_timestamp_iso(doc.get("timestamp"))
         logs.append(doc)
     return logs
 
@@ -129,34 +176,105 @@ async def get_today_fixtures(
     target_date = match_date or datetime.now(WAT).strftime("%Y-%m-%d")
     result: dict[str, list] = {s: [] for s in _SUPPORTED_SPORTS}
 
+    prediction_docs: list[dict] = []
+    pred_by_match_id: dict[str, dict] = {}
+
     async for pred in db.predictions.find(
         {"match_date": target_date, "deleted_at": None}
     ).sort("timestamp", -1):
         pred.pop("_id", None)
+        prediction_docs.append(pred)
+        match_id = pred.get("match_id")
+        if match_id:
+            pred_by_match_id[match_id] = pred
+
+    rank_by_match: dict[str, int] = {}
+    for sport in _SUPPORTED_SPORTS:
+        sport_preds = [p for p in prediction_docs if p.get("sport", "soccer") == sport]
+        sport_ranked = sorted(
+            sport_preds,
+            key=lambda p: float(p.get("confidence_score") or 0.0),
+            reverse=True,
+        )
+        for i, p in enumerate(sport_ranked, start=1):
+            if p.get("match_id"):
+                rank_by_match[p["match_id"]] = i
+
+    for pred in prediction_docs:
         sport = pred.get("sport", "soccer")
         if sport in result:
             result[sport].append({
-                "match_id":          pred.get("match_id"),
-                "home_team":         pred.get("home_team"),
-                "away_team":         pred.get("away_team"),
-                "league":            pred.get("league"),
+                "match_id": pred.get("match_id"),
+                "home_team": pred.get("home_team"),
+                "away_team": pred.get("away_team"),
+                "league": pred.get("league"),
                 "predicted_outcome": pred.get("predicted_outcome"),
                 "home_win_probability": pred.get("home_win_probability"),
                 "away_win_probability": pred.get("away_win_probability"),
-                "draw_probability":  pred.get("draw_probability"),
-                "confidence_score":  pred.get("confidence_score"),
+                "draw_probability": pred.get("draw_probability"),
+                "confidence_score": pred.get("confidence_score"),
                 "prediction_group_id": pred.get("prediction_group_id"),
                 "prediction_group_index": pred.get("prediction_group_index"),
                 "prediction_group_is_high_risk": pred.get("prediction_group_is_high_risk", False),
+                "overall_rank": rank_by_match.get(pred.get("match_id")),
+                "play_rank": _play_rank_from_confidence(pred.get("confidence_score")),
             })
 
     groups_doc = await db.prediction_groups.find_one({"match_date": target_date}, {"_id": 0})
+    groups = (groups_doc or {}).get("groups", [])
+
+    enriched_groups = []
+    for group in groups:
+        group_games = group.get("games") or []
+        group_match_ids = [g.get("match_id") for g in group_games if g.get("match_id")]
+
+        resolved_docs: list[dict] = []
+        if group_match_ids:
+            async for ar in db.actual_results.find(
+                {"match_id": {"$in": group_match_ids}},
+                {"_id": 0, "match_id": 1, "actual_outcome": 1},
+            ):
+                resolved_docs.append(ar)
+
+        resolved_map = {r.get("match_id"): r.get("actual_outcome") for r in resolved_docs if r.get("match_id")}
+
+        group_hits = 0
+        fully_resolved = len(group_match_ids) > 0
+        for match_id in group_match_ids:
+            pred = pred_by_match_id.get(match_id) or {}
+            predicted = pred.get("predicted_outcome")
+            actual = resolved_map.get(match_id)
+            if actual is None:
+                fully_resolved = False
+                continue
+            if predicted and predicted == actual:
+                group_hits += 1
+
+        group_status = "pending"
+        if fully_resolved:
+            group_status = "won" if group_hits == len(group_match_ids) else "lost"
+
+        confidence_values = [
+            float((pred_by_match_id.get(mid) or {}).get("confidence_score") or 0.0)
+            for mid in group_match_ids
+        ]
+        avg_confidence = (sum(confidence_values) / len(confidence_values)) if confidence_values else 0.0
+
+        enriched_groups.append({
+            **group,
+            "group_status": group_status,
+            "resolved_games": len(resolved_docs),
+            "total_games": len(group_match_ids),
+            "group_hit_rate": round((group_hits / len(group_match_ids)), 4) if fully_resolved and group_match_ids else None,
+            "avg_confidence_score": round(avg_confidence, 4),
+            "play_rank": _play_rank_from_confidence(avg_confidence),
+        })
 
     return {
-        "date":  target_date,
+        "date": target_date,
         "total": sum(len(v) for v in result.values()),
         "by_sport": result,
-        "groups": (groups_doc or {}).get("groups", []),
+        "groups": enriched_groups,
     }
 
 
