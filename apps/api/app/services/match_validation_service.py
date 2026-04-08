@@ -68,7 +68,22 @@ ESPN_SCOREBOARD_LEAGUES: Dict[str, List[tuple[str, str, str]]] = {
     ],
     "basketball": [
         ("basketball", "nba", "NBA"),
+        ("basketball", "euroleague", "EuroLeague"),
+        ("basketball", "eurocup", "EuroCup"),
         ("basketball", "mens-college-basketball", "NCAA Men's Basketball"),
+        ("basketball", "acb", "Spain Liga ACB"),
+        ("basketball", "liga-acb", "Spain Liga ACB"),
+        ("basketball", "spain.acb", "Spain Liga ACB"),
+        ("basketball", "italy.lega.a", "Italy Lega A"),
+        ("basketball", "lega-a", "Italy Lega A"),
+        ("basketball", "germany.bbl", "Germany BBL"),
+        ("basketball", "easycredit-bbl", "Germany BBL"),
+        ("basketball", "greece.a1", "Greece Basket League"),
+        ("basketball", "esake", "Greece Basket League"),
+        ("basketball", "france.lnb", "France Pro A"),
+        ("basketball", "betclic-elite", "France Pro A"),
+        ("basketball", "turkey.bsl", "Turkey BSL"),
+        ("basketball", "turkish-bsl", "Turkey BSL"),
     ],
 }
 
@@ -159,6 +174,27 @@ def search_fixtures(
         if result:
             _set_cache(ck, result)
             return result
+
+    # ESPN fallback for competitions where Odds API has no event/odds coverage.
+    espn_match = find_matching_espn_event(home_team, away_team, sport, date)
+    if espn_match:
+        result = {
+            "fixture_id": espn_match.get("fixture_id"),
+            "home_team": espn_match.get("home_team"),
+            "away_team": espn_match.get("away_team"),
+            "league_name": espn_match.get("league"),
+            "league_id": espn_match.get("league_id"),
+            "match_date": espn_match.get("match_date"),
+            "match_time": espn_match.get("match_time"),
+            "validated": True,
+            "source": "espn",
+        }
+        _set_cache(ck, result)
+        logger.info(
+            f"Fixture found [espn:{result['league_id']}]: "
+            f"{result['home_team']} vs {result['away_team']}"
+        )
+        return result
 
     logger.info(f"No fixture found: {home_team} vs {away_team} [{sport}]")
     return None
