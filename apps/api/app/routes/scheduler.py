@@ -36,32 +36,6 @@ def _play_rank_from_confidence(confidence: Optional[float]) -> int:
     if c > 0:
         return 1
     return 0
-
-
-def _normalize_timestamp_iso(value) -> Optional[str]:
-    """Normalize timestamp values to explicit WAT ISO strings."""
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return dt.astimezone(WAT).isoformat()
-
-    if isinstance(value, str):
-        raw = value.strip()
-        if not raw:
-            return None
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(WAT).isoformat()
-        except Exception:
-            return raw
-
-    return str(value)
-
-
 def _require_db():
     db = get_db()
     if db is None:
