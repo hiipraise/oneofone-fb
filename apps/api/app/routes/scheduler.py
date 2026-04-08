@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _normalize_timestamp_iso(value) -> Optional[str]:
+    """Return timestamps as ISO-8601 strings (or None when absent)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 def _play_rank_from_confidence(confidence: Optional[float]) -> int:
