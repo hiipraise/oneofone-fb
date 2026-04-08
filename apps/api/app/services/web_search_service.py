@@ -407,21 +407,6 @@ _BASKETBALL_ESPN_LEAGUES = (
     "mens-college-basketball",
     "womens-college-basketball",
     "euroleague",
-    "eurocup",
-    # Domestic leagues (best-effort; ESPN may not expose all in every region/season)
-    "acb",
-    "liga-acb",
-    "spain.acb",
-    "italy.lega.a",
-    "lega-a",
-    "germany.bbl",
-    "easycredit-bbl",
-    "greece.a1",
-    "esake",
-    "france.lnb",
-    "betclic-elite",
-    "turkey.bsl",
-    "turkish-bsl",
 )
 
 
