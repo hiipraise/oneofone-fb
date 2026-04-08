@@ -76,6 +76,7 @@ async def get_scheduler_status():
     )
     if last_log:
         last_log.pop("_id", None)
+        last_log["timestamp"] = _normalize_timestamp_iso(last_log.get("timestamp"))
 
     today = datetime.now(WAT).strftime("%Y-%m-%d")
     today_counts: dict[str, int] = {}
@@ -135,6 +136,7 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
         {"source": "daily_scheduler"}
     ).sort("timestamp", -1).limit(limit):
         doc.pop("_id", None)
+        doc["timestamp"] = _normalize_timestamp_iso(doc.get("timestamp"))
         logs.append(doc)
     return logs
 
