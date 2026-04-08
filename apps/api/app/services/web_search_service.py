@@ -164,6 +164,64 @@ def get_serpapi_usage() -> Dict:
 # DuckDuckGo fallback  (zero cost, no key, no quota)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _duckduckgo_html_search(query: str, num_results: int = 5) -> List[Dict]:
+    """
+    Lightweight DuckDuckGo HTML search that avoids multi-engine scraping.
+    This path is more stable in hosted environments where third-party engines
+    frequently return captchas/rate-limits.
+    """
+    try:
+        resp = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                ),
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            logger.debug(
+                f"DuckDuckGo HTML returned {resp.status_code} for query [{query[:50]}]"
+            )
+            return []
+
+        html = resp.text
+        links = re.findall(
+            r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        snippets = re.findall(
+            r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>|'
+            r'<div[^>]*class="result__snippet"[^>]*>(.*?)</div>',
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        results: List[Dict] = []
+        for idx, (href, title_html) in enumerate(links[:num_results]):
+            raw_snippet = ""
+            if idx < len(snippets):
+                raw_snippet = snippets[idx][0] or snippets[idx][1]
+            title = re.sub(r"<[^>]+>", "", title_html).strip()
+            snippet = re.sub(r"<[^>]+>", "", raw_snippet).strip()
+            results.append(
+                {
+                    "title": title,
+                    "link": href,
+                    "snippet": snippet,
+                }
+            )
+        return results
+    except Exception as e:
+        logger.debug(f"DuckDuckGo HTML search error [{query[:50]}]: {e}")
+        return []
+
+
 def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
     """
     Use the `duckduckgo-search` package as a free fallback.
@@ -171,6 +229,11 @@ def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
     Completely free — no API key, no monthly limit.
     Results are slightly less precise than Google but sufficient for sports context.
     """
+    # Prefer the direct HTML endpoint first to avoid noisy multi-engine failures.
+    html_results = _duckduckgo_html_search(query=query, num_results=num_results)
+    if html_results:
+        return html_results
+
     try:
         DDGS = None
         try:
@@ -197,7 +260,10 @@ def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
         )
         return []
     except Exception as e:
-        logger.warning(f"DuckDuckGo search error [{query[:50]}]: {e}")
+        logger.warning(
+            f"DuckDuckGo search error [{query[:50]}]: {e} "
+            "(after HTML fallback path)"
+        )
         return []
 
 
