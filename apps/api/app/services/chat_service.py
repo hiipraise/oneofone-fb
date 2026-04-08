@@ -94,7 +94,9 @@ _SPORT_KEYWORDS: Dict[str, List[str]] = {
         "copa del rey", "fa cup", "goal", "striker", "goalkeeper", "penalty",
     ],
     "basketball": [
-        "basketball", "nba", "euroleague", "ncaa basketball", "wnba",
+        "basketball", "nba", "euroleague", "eurocup", "acb", "bbl", "gbl",
+        "lega a", "pro a", "betclic elite", "turkish super league",
+        "ncaa basketball", "wnba",
         "points", "rebounds", "three-pointer", "slam dunk",
     ],
 }

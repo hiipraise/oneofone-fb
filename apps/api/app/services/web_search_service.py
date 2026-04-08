@@ -401,6 +401,13 @@ _SOCCER_ESPN_LEAGUES = (
     "uefa.champions", "uefa.europa", "usa.1", "por.1", "ned.1",
     "arg.1", "bra.1", "tur.1", "mex.1", "ksa.1",
 )
+_BASKETBALL_ESPN_LEAGUES = (
+    "nba",
+    "wnba",
+    "mens-college-basketball",
+    "womens-college-basketball",
+    "euroleague",
+)
 
 
 def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
@@ -410,7 +417,12 @@ def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
         return cached
 
     espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
-    leagues = _SOCCER_ESPN_LEAGUES if sport == "soccer" else (default_league,)
+    if sport == "soccer":
+        leagues = _SOCCER_ESPN_LEAGUES
+    elif sport == "basketball":
+        leagues = _BASKETBALL_ESPN_LEAGUES
+    else:
+        leagues = (default_league,)
     try:
         tl = team_name.lower()
         for league in leagues:
@@ -633,7 +645,7 @@ def _fetch_combined_team_data(team_name: str, sport: str) -> Dict[str, Any]:
         "soccer":     "goals scored conceded clean sheets form results",
         "basketball": "points per game offensive defensive rating results",
     }.get(sport, "form results statistics")
-    query = f"{team_name} {sport_terms} injuries squad availability 2025"
+    query = f"{team_name} {sport_terms} injuries squad availability {now_wat().year}"
 
     snippets = search_web(query, num_results=6)
     text = " ".join(
