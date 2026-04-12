@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: "/history", label: "History", icon: "≡" },
   { path: "/metrics", label: "Model Metrics", icon: "◎" },
   { path: "/scheduler", label: "Scheduler", icon: "⏱" },
+  { path: "/reports", label: "AI Reports", icon: "✦" },
   { path: "/chat", label: "AI Chat", icon: "⌘" },
   { path: "/chat/history", label: "Chat History", icon: "◷" },
 ];

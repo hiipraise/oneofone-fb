@@ -72,6 +72,10 @@ export const getTeamInfo = (team, sport) =>
 // ── API contract ─────────────────────────────────────────────────────────────
 export const getFrontendContract = () => api.get("/meta/frontend");
 
+// ── Reports ──────────────────────────────────────────────────────────────────
+export const getPlatformReport = (limit = 100) =>
+  api.get("/reports/summary", { params: { limit } });
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 export const sendChat = (data) => api.post("/chat/", data);
 

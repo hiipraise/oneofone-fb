@@ -9,6 +9,7 @@ import MetricsPage from './pages/MetricsPage'
 import ChatPage from './pages/ChatPage'
 import ChatHistoryPage from './pages/ChatHistoryPage'
 import SchedulerPage from './pages/SchedulerPage'
+import ReportsPage from './pages/ReportsPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/chat"      element={<ChatPage />} />
         <Route path="/chat/history" element={<ChatHistoryPage />} />
         <Route path="/scheduler" element={<SchedulerPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
       </Routes>
     </Layout>
   )
