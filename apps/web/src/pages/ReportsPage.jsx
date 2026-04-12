@@ -1,68 +1,130 @@
-import React, { useEffect, useState } from 'react'
-import { getPlatformReport } from '../services/api'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useMetricsSummary, usePredictions, useResults } from '../hooks/useData'
 
-const EMPTY_REPORT = {
-  overview: 'No report data available yet.',
-  working: [],
-  needsImprovement: [],
-  suggestions: [],
-  generatedTasks: [],
-  generatedAt: null,
-  facts: {
-    totalPredictions: 0,
-    scoredResolved: 0,
-    rawResolved: 0,
-    accuracy: null,
-    brier: null,
-    resultsCount: 0,
-    predictionsCount: 0,
-  },
+const STORAGE_KEY = 'platform-report-task-status-v1'
+
+function getNumeric(value, fallback = null) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function buildReport(summary, predictions, results) {
+  const accuracy = getNumeric(summary?.performance_metrics_all_sports?.accuracy)
+  const brier = getNumeric(summary?.performance_metrics_all_sports?.brier_score)
+  const totalPredictions = getNumeric(summary?.total_predictions, 0)
+  const scoredResolved = getNumeric(summary?.total_resolved_scored, getNumeric(summary?.total_resolved, 0))
+  const rawResolved = getNumeric(summary?.total_resolved_raw, 0)
+
+  const highConfidence = predictions.filter((p) => (p?.confidence_score ?? 0) >= 0.75).length
+  const lowConfidence = predictions.filter((p) => (p?.confidence_score ?? 0) < 0.55).length
+  const resolutionRate = totalPredictions > 0 ? scoredResolved / totalPredictions : 0
+
+  const working = []
+  if (accuracy !== null && accuracy >= 0.58) {
+    working.push(`Model accuracy is ${(accuracy * 100).toFixed(1)}%, indicating healthy baseline decision quality.`)
+  }
+  if (brier !== null && brier <= 0.42) {
+    working.push(`Calibration quality is acceptable (Brier ${brier.toFixed(4)}).`)
+  }
+  if (highConfidence > 0) {
+    working.push(`${highConfidence} recent predictions were made with high confidence (≥ 75%).`)
+  }
+
+  const needsImprovement = []
+  if (accuracy === null || accuracy < 0.55) {
+    needsImprovement.push('Accuracy is below target and should be improved with more validated training examples.')
+  }
+  if (brier === null || brier > 0.5) {
+    needsImprovement.push('Probability calibration appears weak; confidence likely needs recalibration.')
+  }
+  if (resolutionRate < 0.5) {
+    needsImprovement.push(`Only ${(resolutionRate * 100).toFixed(1)}% of predictions are scored in metrics; result submission coverage is low.`)
+  }
+  if (lowConfidence > highConfidence) {
+    needsImprovement.push('Low-confidence predictions are dominating recent output.')
+  }
+
+  const suggestions = [
+    'Automate post-match result ingestion to increase resolved + scored volume.',
+    'Prioritize per-sport model retraining when sample counts cross activation thresholds.',
+    'Add a weekly calibration review to compare confidence buckets vs actual win rates.',
+  ]
+
+  const generatedTasks = [
+    {
+      id: 'task-improve-resolution',
+      title: 'Increase scored resolution coverage to 70%',
+      detail: `Current scored coverage: ${(resolutionRate * 100).toFixed(1)}% (${scoredResolved}/${totalPredictions || 0}).`,
+    },
+    {
+      id: 'task-calibration-audit',
+      title: 'Run calibration audit on latest 100 predictions',
+      detail: brier !== null ? `Latest Brier score is ${brier.toFixed(4)}.` : 'Brier score unavailable; investigate metrics collection.',
+    },
+    {
+      id: 'task-data-quality',
+      title: 'Review unresolved submitted results',
+      detail: `${rawResolved} results submitted, ${scoredResolved} currently scored in model metrics.`,
+    },
+  ]
+
+  return {
+    overview: `This AI report analyzes platform performance using live model metrics and recent platform activity. It highlights what is working, where to improve, and the next actions for your team.`,
+    working,
+    needsImprovement,
+    suggestions,
+    generatedTasks,
+    generatedAt: new Date().toISOString(),
+    facts: {
+      totalPredictions,
+      scoredResolved,
+      rawResolved,
+      accuracy,
+      brier,
+      resultsCount: results.length,
+      predictionsCount: predictions.length,
+    },
+  }
 }
 
 export default function ReportsPage() {
-  const [report, setReport] = useState(EMPTY_REPORT)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const { data: summary, loading: summaryLoading } = useMetricsSummary()
+  const { data: predictions, loading: predictionsLoading } = usePredictions(null, 100)
+  const { data: results, loading: resultsLoading } = useResults(100)
+
+  const report = useMemo(() => buildReport(summary, predictions, results), [summary, predictions, results])
+
   const [taskStatus, setTaskStatus] = useState({})
 
   useEffect(() => {
-    let mounted = true
-    const fetchReport = async () => {
-      setLoading(true)
-      setError('')
-      try {
-        const res = await getPlatformReport(100)
-        if (!mounted) return
-        setReport(res.data ?? EMPTY_REPORT)
-      } catch (err) {
-        if (!mounted) return
-        setError(err?.response?.data?.detail || err.message || 'Failed to load report')
-        setReport(EMPTY_REPORT)
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    }
-
-    fetchReport()
-    return () => {
-      mounted = false
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') setTaskStatus(parsed)
+    } catch {
+      setTaskStatus({})
     }
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(taskStatus))
+  }, [taskStatus])
 
   const toggleTask = (taskId) => {
     setTaskStatus((prev) => ({ ...prev, [taskId]: !prev[taskId] }))
   }
+
+  const loading = summaryLoading || predictionsLoading || resultsLoading
 
   return (
     <div className="max-w-full animate-fade-in">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
         <div>
           <h1 className="font-display text-xl text-white tracking-wide">AI PLATFORM REPORT</h1>
-          <p className="font-body text-xs text-gray-600 mt-1">Backend-generated analysis of what is working, what needs improvement, and recommended tasks.</p>
+          <p className="font-body text-xs text-gray-600 mt-1">Auto-generated analysis of what is working, what needs improvement, and recommended tasks.</p>
         </div>
-        <span className="font-display text-xs text-gray-600">
-          Generated: {report.generatedAt ? new Date(report.generatedAt).toLocaleString() : '—'}
-        </span>
+        <span className="font-display text-xs text-gray-600">Generated: {new Date(report.generatedAt).toLocaleString()}</span>
       </div>
 
       {loading ? (
@@ -73,12 +135,6 @@ export default function ReportsPage() {
         </div>
       ) : (
         <>
-          {error && (
-            <div className="mb-4 border border-brand-red bg-brand-reddark rounded-sm p-3">
-              <p className="font-display text-xs text-brand-redlight">Report error: {error}</p>
-            </div>
-          )}
-
           <section className="card p-5 mb-4">
             <p className="label mb-2">PLATFORM OVERVIEW</p>
             <p className="font-body text-sm text-gray-300 leading-6">{report.overview}</p>
@@ -142,7 +198,7 @@ export default function ReportsPage() {
           <section className="card p-5">
             <div className="flex items-center justify-between mb-3">
               <p className="label">ACTION TASKS</p>
-              <p className="font-display text-xs text-gray-600">Mark done for this session (not persisted)</p>
+              <p className="font-display text-xs text-gray-600">Mark done as you execute platform improvements</p>
             </div>
 
             <div className="space-y-2">
@@ -160,9 +216,6 @@ export default function ReportsPage() {
                   </div>
                 </label>
               ))}
-              {!report.generatedTasks.length && (
-                <p className="font-body text-sm text-gray-500">No tasks generated yet.</p>
-              )}
             </div>
           </section>
         </>
