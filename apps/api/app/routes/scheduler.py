@@ -23,6 +23,10 @@ def _normalize_timestamp_iso(value) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, datetime):
+        # PyMongo commonly returns naive UTC datetimes unless tz-aware decoding is enabled.
+        # Attach UTC explicitly so clients can correctly convert/display in WAT.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
         return value.isoformat()
     if isinstance(value, str):
         return value
