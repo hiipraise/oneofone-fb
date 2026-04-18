@@ -6,21 +6,46 @@ import {
   Title, Tooltip, Legend, Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { usePerformanceHistory } from '../hooks/useData'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
-export default function PerformanceChart({ metricsHistory = [] }) {
-  const { labels, brierData, logLossData, accuracyData } = useMemo(() => {
-    const sorted = [...metricsHistory].sort((a, b) => new Date(a.date) - new Date(b.date))
-    return {
-      labels: sorted.map(m => new Date(m.date).toLocaleDateString()),
-      brierData: sorted.map(m => m.brier_score ?? null),
-      logLossData: sorted.map(m => m.log_loss ?? null),
-      accuracyData: sorted.map(m => m.accuracy ?? null),
-    }
-  }, [metricsHistory])
+function parseDateLabel(dateStr) {
+  const [year, month, day] = String(dateStr).split('-').map(Number)
+  if (!year || !month || !day) return dateStr
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
-  if (!metricsHistory.length) {
+function safeNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+export default function PerformanceChart() {
+  const { data: performanceHistory, loading } = usePerformanceHistory(30)
+
+  const { labels, brierData, logLossData, accuracyData } = useMemo(() => {
+    const sorted = [...performanceHistory]
+      .filter((m) => m?.date)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+
+    return {
+      labels: sorted.map((m) => parseDateLabel(m.date)),
+      brierData: sorted.map((m) => safeNumber(m.brier_score)),
+      logLossData: sorted.map((m) => safeNumber(m.log_loss)),
+      accuracyData: sorted.map((m) => safeNumber(m.accuracy)),
+    }
+  }, [performanceHistory])
+
+  if (loading) {
+    return (
+      <div className="card p-6 flex items-center justify-center" style={{ height: 260 }}>
+        <p className="font-display text-gray-600 text-sm animate-pulse">LOADING PERFORMANCE DATA…</p>
+      </div>
+    )
+  }
+
+  if (!performanceHistory.length) {
     return (
       <div className="card p-6 flex items-center justify-center" style={{ height: 260 }}>
         <p className="font-display text-gray-600 text-sm">NO PERFORMANCE DATA YET</p>
