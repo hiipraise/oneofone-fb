@@ -9,6 +9,7 @@ from app.config.database import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+METRIC_SPORT = "soccer"
 
 
 @router.get("/")
@@ -32,10 +33,10 @@ async def get_latest_metrics():
 
 @router.get("/summary")
 async def get_metrics_summary():
-    from app.ml.prediction_engine import prediction_engine, FEATURE_KEYS
+    from app.ml.prediction_engine import prediction_engine
     db = get_db()
 
-    sports = list(FEATURE_KEYS.keys())
+    sports = [METRIC_SPORT]
 
     actual_results: dict[str, str] = {}
     total_resolved_raw = 0
@@ -178,6 +179,7 @@ async def get_performance_history(days: int = Query(90, ge=7, le=365)):
             "match_id": {"$in": list(actual_results.keys())},
             "deleted_at": None,
             "match_date": {"$gte": cutoff},
+            "sport": METRIC_SPORT,
         }
     ):
         mid = pred.get("match_id")
@@ -252,11 +254,12 @@ async def get_confidence_history(days: int = Query(30, ge=7, le=180)):
                 "deleted_at": None,
                 "match_date": {"$gte": cutoff},
                 "confidence_score": {"$exists": True, "$ne": None},
+                "sport": METRIC_SPORT,
             }
         },
         {
             "$group": {
-                "_id": {"date": "$match_date", "sport": "$sport"},
+                "_id": {"date": "$match_date", "sport": METRIC_SPORT},
                 "avg": {"$avg": "$confidence_score"},
                 "min": {"$min": "$confidence_score"},
                 "max": {"$max": "$confidence_score"},

@@ -7,17 +7,17 @@ import PredictionCard from '../components/PredictionCard'
 import { submitResult } from '../services/api'
 import { watTodayISO } from '../utils/wat'
 
-// Aligned with backend SportType enum
-const SPORTS = ['all', 'soccer']
+// Soccer-only history view
+const SPORT = 'soccer'
 
 const todayISO = () => watTodayISO()
 
 export default function HistoryPage() {
   const [searchParams] = useSearchParams()
-  const defaultSport = searchParams.get('sport') || 'all'
-  const validSport = SPORTS.includes(defaultSport) ? defaultSport : 'all'
+  const defaultSport = searchParams.get('sport') || SPORT
+  const validSport = defaultSport === SPORT ? SPORT : SPORT
 
-  const [sport, setSport]       = useState(validSport)
+  const [sport]       = useState(validSport)
   const [view, setView]         = useState('table')
   const [expandedGroupId, setExpandedGroupId] = useState(null)
   const [search, setSearch]     = useState('')
@@ -28,7 +28,7 @@ export default function HistoryPage() {
   const [submitMsg, setSubmitMsg]   = useState(null)
 
   const { data, loading, error, refetch } = usePredictions(
-    sport === 'all' ? null : sport,
+    sport,
     200,
   )
   const { data: results = [] } = useResults(200)
@@ -185,20 +185,8 @@ export default function HistoryPage() {
 
       {/* Filters row */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="flex gap-1">
-          {SPORTS.map(s => (
-            <button
-              key={s}
-              onClick={() => setSport(s)}
-              className={`font-display text-xs px-3 py-1 rounded-sm border transition-colors duration-150 ${
-                sport === s
-                  ? 'bg-brand-red border-brand-red text-white'
-                  : 'border-brand-midgray text-gray-500 hover:text-white hover:border-gray-500'
-              }`}
-            >
-              {s.toUpperCase()}
-            </button>
-          ))}
+        <div className="font-display text-xs px-3 py-1 rounded-sm border bg-brand-red border-brand-red text-white">
+          FOOTBALL / SOCCER
         </div>
 
         <div className="flex-1 min-w-[180px] max-w-xs">
