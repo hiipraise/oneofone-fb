@@ -415,7 +415,7 @@ export default function MetricsPage() {
           </h1>
           <p className="font-body text-xs text-gray-600 mt-1">
             Brier Score · Log Loss · Calibration · Accuracy · Serper Usage · ML
-            Ensemble Weights
+            Ensemble Weights (Football / Soccer)
           </p>
         </div>
         <button
@@ -452,7 +452,7 @@ export default function MetricsPage() {
           <p className="label">CURRENT PERFORMANCE</p>
           {!!Object.keys(metricsBySport).length && (
             <p className="font-display text-xs text-gray-600">
-              Aggregate shown across {Object.keys(metricsBySport).length} sports
+              Football / Soccer aggregate metrics
               {aggregateMetrics.accuracy != null
                 ? ` · ${(aggregateMetrics.accuracy * 100).toFixed(1)}% acc`
                 : ""}
@@ -514,7 +514,7 @@ export default function MetricsPage() {
                   FEATURES
                 </span>
                 <span className="font-display text-xs text-gray-300">
-                  17–23 per sport
+                  40 (Football / Soccer)
                 </span>
               </div>
               <div className="flex justify-between items-center py-2 border-t border-brand-midgray">

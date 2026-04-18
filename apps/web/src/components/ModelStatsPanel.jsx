@@ -260,10 +260,10 @@ export default function ModelStatsPanel({ summary, loading }) {
         />
       </div>
 
-      {/* Per-sport ML weight / progress breakdown — always shown */}
+      {/* Soccer ML weight / progress breakdown */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="label">ML ENSEMBLE WEIGHT PER SPORT</p>
+          <p className="label">ML ENSEMBLE WEIGHT (FOOTBALL / SOCCER)</p>
           <p className="font-display text-xs text-gray-600">
             {anyActive
               ? "higher = more ML, less prior"
@@ -288,7 +288,7 @@ export default function ModelStatsPanel({ summary, loading }) {
             <span className="text-yellow-500 text-xs shrink-0 mt-0.5">⚠</span>
             <p className="font-display text-xs text-yellow-500">
               {sportsBelow30.length === SPORTS.length
-                ? `All sports need ${ML_ACTIVATION_THRESHOLD} resolved predictions to activate ML. Blue bars show progress.`
+                ? `Football / Soccer needs ${ML_ACTIVATION_THRESHOLD} resolved predictions to activate ML. Blue bars show progress.`
                 : `${sportsBelow30.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")} still building toward ${ML_ACTIVATION_THRESHOLD}-sample threshold.`}
             </p>
           </div>
