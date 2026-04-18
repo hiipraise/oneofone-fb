@@ -19,16 +19,6 @@ const PIPELINE_STEPS = {
     'Computing BTTS, correct score, corners, cards',
     'Computing Asian handicap',
   ],
-  basketball: [
-    'Validating fixture in live database',
-    'Fetching team form + ESPN win%',
-    'Fetching injury reports (high weight: 5-man roster)',
-    'Fetching head-to-head history',
-    'Fetching moneyline odds signals',
-    'Running HistGradientBoosting + calibration',
-    'Computing points O/U (Gaussian model)',
-    'Computing spread and moneyline',
-  ],
 }
 
 export default function PredictPage() {
@@ -138,15 +128,15 @@ export default function PredictPage() {
 
   const label1 = 'HOME TEAM'
   const label2 = 'AWAY TEAM'
-  const ph1    = form.sport === 'basketball' ? 'e.g. LA Lakers' : 'e.g. Manchester City'
-  const ph2    = form.sport === 'basketball' ? 'e.g. Boston Celtics' : 'e.g. Arsenal'
+  const ph1    = 'e.g. Manchester City'
+  const ph2    = 'e.g. Arsenal'
 
   return (
     <div className="max-w-3xl animate-fade-in">
       <div className="mb-6">
         <h1 className="font-display text-xl text-white tracking-wide">GENERATE PREDICTION</h1>
         <p className="font-body text-xs text-gray-600 mt-1">
-          Supports Football/Soccer · Basketball — live data, extended markets
+          Supports Football/Soccer — live data, extended markets
         </p>
       </div>
 

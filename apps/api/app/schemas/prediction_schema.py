@@ -15,12 +15,10 @@ from app.config.api_contract import (
 
 class SportType(str, Enum):
     SOCCER = "soccer"
-    BASKETBALL = "basketball"
 
 
 SPORT_DISPLAY = {
     SportType.SOCCER: "Football / Soccer",
-    SportType.BASKETBALL: "Basketball",
 }
 
 

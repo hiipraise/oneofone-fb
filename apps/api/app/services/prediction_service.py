@@ -48,7 +48,7 @@ _EXTERNAL_CACHE_TTL_SECONDS = 6 * 60 * 60
 logger = logging.getLogger(__name__)
 
 # Sports the ML engine supports — others are skipped during learning
-_SUPPORTED_ML_SPORTS = {"soccer", "basketball"}
+_SUPPORTED_ML_SPORTS = {"soccer"}
 
 
 def _is_mongo_dns_resolution_error(exc: Exception) -> bool:

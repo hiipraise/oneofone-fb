@@ -18,7 +18,6 @@ const NAV_ITEMS = [
 
 const SPORTS = [
   { key: "soccer", label: "Football", dot: "bg-brand-green" },
-  { key: "basketball", label: "Basketball", dot: "bg-yellow-500" },
 ];
 
 function NavItem({ path, label, icon, isActive }) {
@@ -157,14 +156,12 @@ export default function Sidebar({ isOpen = false, onClose }) {
 
   const searchSport = new URLSearchParams(location.search).get("sport") || "";
 
-  const mlWeights = modelSummary?.ml_weights ?? { soccer: 0, basketball: 0 };
+  const mlWeights = modelSummary?.ml_weights ?? { soccer: 0 };
   const nSamples = modelSummary?.n_training_samples ?? {
     soccer: 0,
-    basketball: 0,
   };
   const isTrained = modelSummary?.is_trained ?? {
     soccer: false,
-    basketball: false,
   };
   const allSportsMetrics = modelSummary?.performance_metrics_all_sports ?? {};
 

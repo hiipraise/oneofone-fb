@@ -8,7 +8,7 @@ import { submitResult } from '../services/api'
 import { watTodayISO } from '../utils/wat'
 
 // Aligned with backend SportType enum
-const SPORTS = ['all', 'soccer', 'basketball']
+const SPORTS = ['all', 'soccer']
 
 const todayISO = () => watTodayISO()
 

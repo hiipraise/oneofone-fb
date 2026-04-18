@@ -10,7 +10,7 @@ SEARCH_QUERY_MAX_LENGTH = 200
 PREDICTIONS_LIMIT_DEFAULT = 50
 PREDICTIONS_LIMIT_MAX = 500
 
-SUPPORTED_SPORTS = ("soccer", "basketball")
+SUPPORTED_SPORTS = ("soccer",)
 
 # /metrics/summary contract:
 # - performance_metrics_all_sports: weighted aggregate across all sports
