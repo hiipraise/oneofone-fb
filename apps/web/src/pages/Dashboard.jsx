@@ -1,7 +1,7 @@
 // src/pages/Dashboard.jsx
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { usePredictions, useMetricsSummary, useMetricsHistory, useResults } from '../hooks/useData'
+import { usePredictions, useMetricsSummary, useResults } from '../hooks/useData'
 import ModelStatsPanel from '../components/ModelStatsPanel'
 import PredictionCard from '../components/PredictionCard'
 import PerformanceChart from '../charts/PerformanceChart'
@@ -13,7 +13,6 @@ import { formatWatDate } from '../utils/wat'
 export default function Dashboard() {
   const { data: predictions, loading: predsLoading } = usePredictions(null, 20, 60_000)
   const { data: summary, loading: summaryLoading } = useMetricsSummary()
-  const { data: metricsHistory } = useMetricsHistory(30)
   const { data: results } = useResults(100, 60_000)
 
   const resolvedMatches = results.reduce((map, result) => {
@@ -45,12 +44,12 @@ export default function Dashboard() {
 
       {/* Charts row */}
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
-        <PerformanceChart metricsHistory={metricsHistory} />
+        <PerformanceChart />
         <ProbabilityDistributionChart predictions={predictions} />
       </section>
 
       <section className="mb-6">
-        <PerformanceTrendChart metricsHistory={metricsHistory} />
+        <PerformanceTrendChart />
       </section>
 
       <section className="mb-6">
