@@ -141,12 +141,24 @@ async def trigger_scheduler():
 
 
 @router.get("/logs")
-async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
+async def get_scheduler_logs(
+    limit: int = Query(50, ge=1, le=200),
+    sport: Optional[str] = Query(None, description="Optional sport filter, e.g. soccer"),
+):
     """Recent scheduler log entries."""
     db = _require_db()
     logs: List[dict] = []
+    normalized_sport = sport.lower() if sport else None
+    query = {"source": "daily_scheduler"}
+    if normalized_sport:
+        query["$or"] = [
+            {"sport": normalized_sport},
+            {"sport": {"$exists": False}},
+            {"sport": None},
+        ]
+
     async for doc in db.system_logs.find(
-        {"source": "daily_scheduler"}
+        query
     ).sort("timestamp", -1).limit(limit):
         doc.pop("_id", None)
         doc["timestamp"] = _normalize_timestamp_iso(doc.get("timestamp"))
@@ -157,10 +169,12 @@ async def get_scheduler_logs(limit: int = Query(50, ge=1, le=200)):
 @router.get("/fixtures/today")
 async def get_today_fixtures(
     match_date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today in WAT"),
+    sport: Optional[str] = Query(None, description="Optional sport filter, e.g. soccer"),
 ):
     """Generated predictions grouped by sport for a given date (defaults to today)."""
     db = _require_db()
     target_date = match_date or datetime.now(WAT).strftime("%Y-%m-%d")
+    normalized_sport = sport.lower() if sport else None
     result: dict[str, list] = {s: [] for s in _SUPPORTED_SPORTS}
 
     prediction_docs: list[dict] = []
@@ -214,6 +228,13 @@ async def get_today_fixtures(
     for group in groups:
         group_games = group.get("games") or []
         group_match_ids = [g.get("match_id") for g in group_games if g.get("match_id")]
+        if normalized_sport:
+            group_match_ids = [
+                match_id for match_id in group_match_ids
+                if (pred_by_match_id.get(match_id) or {}).get("sport", "soccer") == normalized_sport
+            ]
+            if not group_match_ids:
+                continue
 
         resolved_docs: list[dict] = []
         if group_match_ids:
@@ -249,6 +270,7 @@ async def get_today_fixtures(
 
         enriched_groups.append({
             **group,
+            "games": [g for g in group_games if g.get("match_id") in set(group_match_ids)],
             "group_status": group_status,
             "resolved_games": len(resolved_docs),
             "total_games": len(group_match_ids),
@@ -257,10 +279,15 @@ async def get_today_fixtures(
             "play_rank": _play_rank_from_confidence(avg_confidence),
         })
 
+    if normalized_sport:
+        filtered_result = {normalized_sport: result.get(normalized_sport, [])}
+    else:
+        filtered_result = result
+
     return {
         "date": target_date,
-        "total": sum(len(v) for v in result.values()),
-        "by_sport": result,
+        "total": sum(len(v) for v in filtered_result.values()),
+        "by_sport": filtered_result,
         "groups": enriched_groups,
     }
 
