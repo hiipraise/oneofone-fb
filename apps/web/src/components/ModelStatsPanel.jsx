@@ -113,10 +113,9 @@ function fmtPct(v) {
 
 const SPORT_DOTS = {
   soccer: "bg-brand-green",
-  basketball: "bg-yellow-500",
 };
 
-const SPORTS = ["soccer", "basketball"];
+const SPORTS = ["soccer"];
 
 export default function ModelStatsPanel({ summary, loading }) {
   if (loading) return <Skeleton />;

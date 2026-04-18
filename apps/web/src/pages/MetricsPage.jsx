@@ -14,7 +14,6 @@ import { formatWatDate } from "../utils/wat";
 
 const SPORT_DOTS = {
   soccer: "bg-brand-green",
-  basketball: "bg-yellow-500",
 };
 
 // ── Quota panel ───────────────────────────────────────────────────────────────
@@ -177,7 +176,7 @@ function SportModelTable({ summary }) {
   const mlWeights = summary.ml_weights || {};
   const nSamples = summary.n_training_samples || {};
   const isTrained = summary.is_trained || {};
-  const sports = ["soccer", "basketball"];
+  const sports = ["soccer"];
 
   return (
     <div className="card overflow-hidden">

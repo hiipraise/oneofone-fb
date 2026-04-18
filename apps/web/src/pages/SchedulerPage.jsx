@@ -6,14 +6,12 @@ import PaginationControls from "../components/PaginationControls";
 import { triggerResolution } from "../services/api";
 import { formatWatDateTime, watTodayISO } from "../utils/wat";
 
-const SPORTS = ["soccer", "basketball"];
+const SPORTS = ["soccer"];
 const SPORT_DOTS = {
   soccer: "bg-brand-green",
-  basketball: "bg-yellow-500",
 };
 const SPORT_LABEL = {
   soccer: "Football / Soccer",
-  basketball: "Basketball",
 };
 
 function timeAgo(ts) {
