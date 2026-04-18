@@ -506,7 +506,7 @@ export default function SchedulerPage() {
     setFixturesLoading(true);
     try {
       const res = await api.get("/scheduler/fixtures/today", {
-        params: { match_date: selectedDate },
+        params: { match_date: selectedDate, sport },
       });
       setFixtures(res.data);
     } catch {
@@ -514,18 +514,18 @@ export default function SchedulerPage() {
     } finally {
       setFixturesLoading(false);
     }
-  }, [selectedDate]);
+  }, [selectedDate, sport]);
 
   const loadLogs = useCallback(async () => {
     try {
-      const res = await api.get("/scheduler/logs", { params: { limit: 30 } });
+      const res = await api.get("/scheduler/logs", { params: { limit: 30, sport } });
       setLogs(Array.isArray(res.data) ? res.data : []);
     } catch {
       setLogs([]);
     } finally {
       setLogsLoading(false);
     }
-  }, []);
+  }, [sport]);
 
   useEffect(() => {
     loadStatus();
