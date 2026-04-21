@@ -11,7 +11,7 @@ import CalibrationChart from '../charts/CalibrationChart'
 import { formatWatDate } from '../utils/wat'
 
 export default function Dashboard() {
-  const { data: predictions, loading: predsLoading } = usePredictions(null, 20, 60_000)
+  const { data: predictions, loading: predsLoading } = usePredictions('soccer', 20, 60_000)
   const { data: summary, loading: summaryLoading } = useMetricsSummary()
   const { data: results } = useResults(100, 60_000)
 
@@ -20,7 +20,9 @@ export default function Dashboard() {
     return map
   }, {})
 
-  const recentPredictions = predictions.slice(0, 3)
+  const recentPredictions = predictions
+    .filter((pred) => (pred?.sport || '').toLowerCase() === 'soccer')
+    .slice(0, 3)
 
   return (
     <div className="max-w-full animate-fade-in">

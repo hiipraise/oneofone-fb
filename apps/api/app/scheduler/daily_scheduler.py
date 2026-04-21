@@ -37,7 +37,8 @@ from app.services.sport_key_catalog import SPORT_KEYS
 logger = logging.getLogger(__name__)
 
 # ── Supported sports ──────────────────────────────────────────────────────────
-_SUPPORTED_SPORTS: List[str] = ["soccer", "basketball"]
+# Product scope: football/soccer only.
+_SUPPORTED_SPORTS: List[str] = ["soccer"]
 
 # ── APScheduler instance (exported so scheduler_route can inspect it) ─────────
 scheduler = BackgroundScheduler(timezone="Africa/Lagos")
