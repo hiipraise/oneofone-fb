@@ -56,6 +56,25 @@ function BttsBadge({ btts }) {
   )
 }
 
+function CornersBadge({ corners }) {
+  if (!corners) return null
+  const expected = Number(corners.expected_total)
+  const line = Number(corners.line)
+  const hasExpected = Number.isFinite(expected)
+  const hasLine = Number.isFinite(line)
+  if (!hasExpected && !hasLine) return null
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="font-display text-xs text-gray-600">CORNERS</span>
+      <span className="font-display text-xs px-2 py-0.5 rounded-sm border text-gray-300 bg-brand-darkgray border-brand-midgray">
+        {hasExpected ? `Exp ${expected.toFixed(1)}` : 'Exp —'}
+        {hasLine ? ` · Line ${line.toFixed(1)}` : ''}
+      </span>
+    </div>
+  )
+}
+
 // ─── Main card ───────────────────────────────────────────────────────────────
 
 function ResolutionBadge({ prediction, resolvedMatch }) {
@@ -134,8 +153,7 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
     : predicted_outcome === 'away_win' ? 'text-brand-redlight'
     : 'text-yellow-400'
 
-  // Only show draw bar when it's meaningful (> 5%)
-  const showDraw = (draw_probability ?? 0) > 0.05
+  const cornersData = extended_markets?.corners ?? null
 
   const ciLow  = Math.round((confidence_interval_low  ?? 0) * 100)
   const ciHigh = Math.round((confidence_interval_high ?? 0) * 100)
@@ -180,13 +198,11 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
           value={home_win_probability}
           isWinner={winnerIs === 'home_win'}
         />
-        {showDraw && (
-          <ProbBar
-            label="Draw"
-            value={draw_probability}
-            isWinner={winnerIs === 'draw'}
-          />
-        )}
+        <ProbBar
+          label="Draw"
+          value={draw_probability}
+          isWinner={winnerIs === 'draw'}
+        />
         <ProbBar
           label={away_team}
           value={away_win_probability}
@@ -208,6 +224,7 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <p className="font-display text-xs text-gray-500 mt-0.5">v{model_version}</p>
           </div>
           <BttsBadge btts={bttsData} />
+          <CornersBadge corners={cornersData} />
         </div>
         <button
           onClick={() => setExpanded(p => !p)}

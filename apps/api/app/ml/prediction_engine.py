@@ -578,6 +578,17 @@ class PredictionEngine:
             home_prob = 0.78 * home_prob + 0.22 * p_home
             away_prob = 0.78 * away_prob + 0.22 * p_away
             draw_prob = 0.78 * draw_prob + 0.22 * p_draw
+            # Draw balancing:
+            # increase draw support for "tight" games where teams are near parity
+            # and expected goals are low (typical draw conditions in football).
+            parity = float(np.clip(1.0 - abs(home_prob - away_prob) * 2.0, 0.0, 1.0))
+            low_total = float(np.clip((3.0 - (xg_home + xg_away)) / 2.0, 0.0, 1.0))
+            draw_floor = float(np.clip(0.07 + 0.07 * parity + 0.04 * low_total, 0.06, 0.22))
+            if draw_prob < draw_floor:
+                lift = draw_floor - draw_prob
+                home_prob = max(0.01, home_prob - (lift * 0.5))
+                away_prob = max(0.01, away_prob - (lift * 0.5))
+                draw_prob = draw_floor
             features["xg_home_prior"] = round(xg_home, 4)
             features["xg_away_prior"] = round(xg_away, 4)
             features["xg_total_prior"] = round(xg_home + xg_away, 4)
@@ -733,6 +744,20 @@ class PredictionEngine:
                 "samples": len(rows),
                 "reason": "insufficient_class_support",
             }
+
+        # Outcome balancing:
+        # draws are typically the minority class in football labels. If we only use
+        # recency weights, the model can become biased toward home/away picks.
+        # Apply inverse-frequency class weighting on top of recency weighting.
+        class_weight_map: Dict[int, float] = {}
+        mean_class_count = float(np.mean(class_counts))
+        for cls, count in zip(unique_classes.tolist(), class_counts.tolist()):
+            if count <= 0:
+                class_weight_map[int(cls)] = 1.0
+            else:
+                class_weight_map[int(cls)] = float(np.clip(mean_class_count / float(count), 0.8, 2.8))
+        class_weight_vec = np.array([class_weight_map.get(int(label), 1.0) for label in y], dtype=np.float64)
+        w = w * class_weight_vec
 
         self.scalers[sport].fit(X)
         assert X.shape[1] == int(self.scalers[sport].n_features_in_), (
