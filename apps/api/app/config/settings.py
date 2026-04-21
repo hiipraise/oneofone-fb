@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     RESULT_RESOLUTION_MINUTE: int = 0
 
     # ML
-    MODEL_VERSION:        str = "3.0.0"
+    # Must match persisted artifacts in apps/api/models/ (currently v5.0.0).
+    MODEL_VERSION:        str = "5.0.0"
     MIN_TRAINING_SAMPLES: int = 30
     CALIBRATION_METHOD:   str = "isotonic"
 
