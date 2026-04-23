@@ -1,9 +1,9 @@
 export const ML_ACTIVATION_THRESHOLD = 30
 
-export function getMlWeightState(weight = 0, nSamples = 0) {
+export function getMlWeightState(weight = 0, nSamples = 0, isTrained = false) {
   const n = nSamples ?? 0
   const wPct = Math.round((weight ?? 0) * 100)
-  const active = n >= ML_ACTIVATION_THRESHOLD
+  const active = Boolean(isTrained)
 
   const progressPct = Math.min(Math.round((n / ML_ACTIVATION_THRESHOLD) * 100), 100)
 

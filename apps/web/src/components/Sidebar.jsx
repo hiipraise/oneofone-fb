@@ -104,9 +104,9 @@ function QuotaBar({ quota, loading }) {
 }
 
 // ── ML weight row ─────────────────────────────────────────────────────────────
-function MlWeightRow({ sport, weight, nSamples, dot }) {
+function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
   const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } =
-    getMlWeightState(weight, nSamples);
+    getMlWeightState(weight, nSamples, isTrained);
 
   return (
     <div className="flex items-center gap-2 py-1">
@@ -247,13 +247,12 @@ export default function Sidebar({ isOpen = false, onClose }) {
                 sport={s.key}
                 weight={mlWeights[s.key]}
                 nSamples={nSamples[s.key]}
+                isTrained={isTrained[s.key]}
                 dot={s.dot}
               />
             ))}
             <p className="font-display text-xs text-gray-700 mt-2">
-              {SPORTS.some(
-                (s) => (nSamples[s.key] ?? 0) >= ML_ACTIVATION_THRESHOLD,
-              )
+              {SPORTS.some((s) => Boolean(isTrained[s.key]))
                 ? "Higher = more ML, less prior model"
                 : `Building toward ML activation (${ML_ACTIVATION_THRESHOLD} samples per sport)`}
             </p>
