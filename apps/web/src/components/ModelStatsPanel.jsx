@@ -16,12 +16,12 @@ function StatBlock({ label, value, sub, colorClass = "text-white" }) {
 
 /**
  * WeightBar — dual-mode:
- *  • n < 30  → shows progress toward the 30-sample activation threshold (blue fill)
- *  • n ≥ 30  → shows actual ML weight (green/yellow fill)
+ *  • untrained → shows progress toward activation threshold (blue fill)
+ *  • trained   → shows actual ML weight (green/yellow fill)
  */
-function WeightBar({ sport, weight, nSamples, dot }) {
+function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
   const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } =
-    getMlWeightState(weight, nSamples);
+    getMlWeightState(weight, nSamples, isTrained);
   const progressColor = "bg-blue-500";
 
   const calLabel = n >= 100 ? "isotonic" : n >= threshold ? "sigmoid" : "prior";
@@ -278,6 +278,7 @@ export default function ModelStatsPanel({ summary, loading }) {
               sport={sport}
               weight={mlWeights[sport] ?? 0}
               nSamples={nSamples[sport] ?? 0}
+              isTrained={Boolean(summary.is_trained?.[sport])}
               dot={SPORT_DOTS[sport]}
             />
           ))}
