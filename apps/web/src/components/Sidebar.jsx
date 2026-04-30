@@ -105,7 +105,16 @@ function QuotaBar({ quota, loading }) {
 
 // ── ML weight row ─────────────────────────────────────────────────────────────
 function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
-  const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } =
+  const {
+    n,
+    wPct,
+    active,
+    readyToTrain,
+    progressPct,
+    mlBarColor,
+    mlTextColor,
+    threshold,
+  } =
     getMlWeightState(weight, nSamples, isTrained);
 
   return (
@@ -126,7 +135,7 @@ function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
       <span
         className={`font-display text-xs tabular-nums w-10 text-right ${active ? mlTextColor : "text-blue-400"}`}
       >
-        {active ? `${wPct}%` : `${n}/${threshold}`}
+        {active ? `${wPct}%` : readyToTrain ? `${threshold}+` : `${n}/${threshold}`}
       </span>
     </div>
   );
@@ -164,6 +173,11 @@ export default function Sidebar({ isOpen = false, onClose }) {
     soccer: false,
   };
   const allSportsMetrics = modelSummary?.performance_metrics_all_sports ?? {};
+  const anyReadyToTrain = SPORTS.some(
+    (sport) =>
+      (nSamples[sport.key] ?? 0) >= ML_ACTIVATION_THRESHOLD &&
+      !isTrained[sport.key],
+  );
 
   return (
     <aside
@@ -254,7 +268,9 @@ export default function Sidebar({ isOpen = false, onClose }) {
             <p className="font-display text-xs text-gray-700 mt-2">
               {SPORTS.some((s) => Boolean(isTrained[s.key]))
                 ? "Higher = more ML, less prior model"
-                : `Building toward ML activation (${ML_ACTIVATION_THRESHOLD} samples per sport)`}
+                : anyReadyToTrain
+                  ? "Activation threshold reached; retraining pending"
+                  : `Building toward ML activation (${ML_ACTIVATION_THRESHOLD} samples per sport)`}
             </p>
           </div>
         )}
