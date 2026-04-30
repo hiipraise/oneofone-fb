@@ -20,7 +20,16 @@ function StatBlock({ label, value, sub, colorClass = "text-white" }) {
  *  • trained   → shows actual ML weight (green/yellow fill)
  */
 function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
-  const { n, wPct, active, progressPct, mlBarColor, mlTextColor, threshold } =
+  const {
+    n,
+    wPct,
+    active,
+    readyToTrain,
+    progressPct,
+    mlBarColor,
+    mlTextColor,
+    threshold,
+  } =
     getMlWeightState(weight, nSamples, isTrained);
   const progressColor = "bg-blue-500";
 
@@ -63,7 +72,7 @@ function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
           </span>
         ) : (
           <span className="font-display text-xs tabular-nums w-10 text-right text-blue-400">
-            {n}/{threshold}
+            {readyToTrain ? `${threshold}+` : `${n}/${threshold}`}
           </span>
         )}
       </div>
@@ -73,7 +82,9 @@ function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
         <span className="font-display text-xs text-gray-700">
           {active
             ? `${n} samples`
-            : `${n} samples · ${threshold - n} to activate`}
+            : readyToTrain
+              ? `${n} samples · ready to retrain`
+              : `${n} samples · ${Math.max(threshold - n, 0)} to activate`}
         </span>
         <span
           className={`font-display text-xs ${
@@ -186,6 +197,11 @@ export default function ModelStatsPanel({ summary, loading }) {
     (s) => (nSamples[s] ?? 0) < ML_ACTIVATION_THRESHOLD,
   );
   const anyActive = trainedSports.length > 0;
+  const anyReadyToTrain = SPORTS.some(
+    (sport) =>
+      (nSamples[sport] ?? 0) >= ML_ACTIVATION_THRESHOLD &&
+      !summary.is_trained?.[sport],
+  );
 
   return (
     <div className="space-y-3">
@@ -267,7 +283,9 @@ export default function ModelStatsPanel({ summary, loading }) {
           <p className="font-display text-xs text-gray-600">
             {anyActive
               ? "higher = more ML, less prior"
-              : "building toward activation"}
+              : anyReadyToTrain
+                ? "activation threshold reached · retrain pending"
+                : "building toward activation"}
           </p>
         </div>
 

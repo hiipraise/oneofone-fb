@@ -4,6 +4,7 @@ export function getMlWeightState(weight = 0, nSamples = 0, isTrained = false) {
   const n = nSamples ?? 0
   const wPct = Math.round((weight ?? 0) * 100)
   const active = Boolean(isTrained)
+  const readyToTrain = !active && n >= ML_ACTIVATION_THRESHOLD
 
   const progressPct = Math.min(Math.round((n / ML_ACTIVATION_THRESHOLD) * 100), 100)
 
@@ -15,6 +16,7 @@ export function getMlWeightState(weight = 0, nSamples = 0, isTrained = false) {
     n,
     wPct,
     active,
+    readyToTrain,
     progressPct,
     mlBarColor,
     mlTextColor,
