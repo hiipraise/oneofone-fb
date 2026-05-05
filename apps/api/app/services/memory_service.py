@@ -11,6 +11,32 @@ from app.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+async def _trim_session_lists(db, session_id: str) -> None:
+    session = await db.chat_sessions.find_one(
+        {"session_id": session_id},
+        {"_id": 0, "predictions_made": 1, "teams_discussed": 1, "sports_discussed": 1},
+    )
+    if not session:
+        return
+
+    limits = {
+        "predictions_made": settings.CHAT_SESSION_PREDICTION_LIMIT,
+        "teams_discussed": settings.CHAT_SESSION_TOPIC_LIMIT,
+        "sports_discussed": settings.CHAT_SESSION_TOPIC_LIMIT,
+    }
+    updates: Dict[str, List[str]] = {}
+    for field, limit in limits.items():
+        items = session.get(field) or []
+        if len(items) > limit:
+            updates[field] = items[-limit:]
+
+    if updates:
+        await db.chat_sessions.update_one(
+            {"session_id": session_id},
+            {"$set": updates},
+        )
+
+
 async def create_session() -> str:
     session_id = str(uuid.uuid4())
     db = get_db()
@@ -57,6 +83,8 @@ async def append_message(session_id: str, role: str, content: str, metadata: Opt
         {"session_id": session_id},
         {"$set": update, "$inc": {"message_count": 1}},
     )
+
+    await _trim_session_lists(db, session_id)
 
 
 async def get_history(session_id: str, limit: Optional[int] = None) -> List[Dict]:

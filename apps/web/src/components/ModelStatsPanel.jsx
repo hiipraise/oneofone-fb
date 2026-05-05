@@ -1,6 +1,12 @@
 // src/components/ModelStatsPanel.jsx
 import React from "react";
 import { getMlWeightState, ML_ACTIVATION_THRESHOLD } from "./MlWeightLogic";
+import {
+  getCalibrationMethod,
+  getCalibrationColor,
+  SAMPLE_THRESHOLD_MID,
+  SAMPLE_THRESHOLD_CALIBRATION,
+} from "./MlWeightLogic";
 
 function StatBlock({ label, value, sub, colorClass = "text-white" }) {
   return (
@@ -19,7 +25,7 @@ function StatBlock({ label, value, sub, colorClass = "text-white" }) {
  *  • untrained → shows progress toward activation threshold (blue fill)
  *  • trained   → shows actual ML weight (green/yellow fill)
  */
-function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
+function WeightBar({ sport, weight, nSamples, isTrained, dot, threshold }) {
   const {
     n,
     wPct,
@@ -28,12 +34,12 @@ function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
     progressPct,
     mlBarColor,
     mlTextColor,
-    threshold,
-  } =
-    getMlWeightState(weight, nSamples, isTrained);
+    threshold: computedThreshold,
+  } = getMlWeightState(weight, nSamples, isTrained, threshold);
   const progressColor = "bg-blue-500";
 
-  const calLabel = n >= 100 ? "isotonic" : n >= threshold ? "sigmoid" : "prior";
+  const calLabel = getCalibrationMethod(n);
+  const calColor = getCalibrationColor(n);
 
   return (
     <div>
@@ -72,7 +78,9 @@ function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
           </span>
         ) : (
           <span className="font-display text-xs tabular-nums w-10 text-right text-blue-400">
-            {readyToTrain ? `${threshold}+` : `${n}/${threshold}`}
+            {readyToTrain
+              ? `${computedThreshold}+`
+              : `${n}/${computedThreshold}`}
           </span>
         )}
       </div>
@@ -86,17 +94,7 @@ function WeightBar({ sport, weight, nSamples, isTrained, dot }) {
               ? `${n} samples · ready to retrain`
               : `${n} samples · ${Math.max(threshold - n, 0)} to activate`}
         </span>
-        <span
-          className={`font-display text-xs ${
-            calLabel === "isotonic"
-              ? "text-brand-greenlight"
-              : calLabel === "sigmoid"
-                ? "text-yellow-400"
-                : "text-gray-700"
-          }`}
-        >
-          {calLabel}
-        </span>
+        <span className={`font-display text-xs ${calColor}`}>{calLabel}</span>
       </div>
     </div>
   );
@@ -126,7 +124,7 @@ const SPORT_DOTS = {
   soccer: "bg-brand-green",
 };
 
-const SPORTS = ["soccer"];
+const DEFAULT_SPORTS = ["soccer"];
 
 export default function ModelStatsPanel({ summary, loading }) {
   if (loading) return <Skeleton />;
@@ -147,6 +145,16 @@ export default function ModelStatsPanel({ summary, loading }) {
   const m = summary.performance_metrics_all_sports || {};
   const mlWeights = summary.ml_weights || {};
   const nSamples = summary.n_training_samples || {};
+  const mlThreshold =
+    summary.ml_activation_threshold ?? ML_ACTIVATION_THRESHOLD;
+  const sports = (
+    summary.supported_sports?.length
+      ? summary.supported_sports
+      : Object.keys(nSamples).length
+        ? Object.keys(nSamples)
+        : DEFAULT_SPORTS
+  ).filter((sport) => sport === "soccer");
+  const displaySports = sports.length ? sports : DEFAULT_SPORTS;
   const totalSamples = Object.values(nSamples).reduce(
     (s, v) => s + (v || 0),
     0,
@@ -180,7 +188,7 @@ export default function ModelStatsPanel({ summary, loading }) {
           : "text-brand-redlight";
 
   const trainedSports = Object.entries(summary.is_trained || {})
-    .filter(([, v]) => v)
+    .filter(([k, v]) => v && displaySports.includes(k))
     .map(([k]) => k);
   const engineLabel =
     trainedSports.length > 0
@@ -188,19 +196,19 @@ export default function ModelStatsPanel({ summary, loading }) {
       : "Prior model";
 
   const avgMlWeight =
-    SPORTS.length > 0
-      ? SPORTS.reduce((s, sp) => s + (mlWeights[sp] || 0), 0) / SPORTS.length
+    displaySports.length > 0
+      ? displaySports.reduce((s, sp) => s + (mlWeights[sp] || 0), 0) /
+        displaySports.length
       : null;
 
   // How many sports are still below threshold?
-  const sportsBelow30 = SPORTS.filter(
-    (s) => (nSamples[s] ?? 0) < ML_ACTIVATION_THRESHOLD,
+  const sportsBelowThreshold = displaySports.filter(
+    (s) => (nSamples[s] ?? 0) < mlThreshold,
   );
   const anyActive = trainedSports.length > 0;
-  const anyReadyToTrain = SPORTS.some(
+  const anyReadyToTrain = displaySports.some(
     (sport) =>
-      (nSamples[sport] ?? 0) >= ML_ACTIVATION_THRESHOLD &&
-      !summary.is_trained?.[sport],
+      (nSamples[sport] ?? 0) >= mlThreshold && !summary.is_trained?.[sport],
   );
 
   return (
@@ -269,7 +277,7 @@ export default function ModelStatsPanel({ summary, loading }) {
           value={totalSamples > 0 ? totalSamples.toLocaleString() : "—"}
           sub={engineLabel}
           colorClass={
-            totalSamples >= ML_ACTIVATION_THRESHOLD
+            totalSamples >= mlThreshold
               ? "text-brand-greenlight"
               : "text-yellow-500"
           }
@@ -290,25 +298,26 @@ export default function ModelStatsPanel({ summary, loading }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {SPORTS.map((sport) => (
+          {displaySports.map((sport) => (
             <WeightBar
               key={sport}
               sport={sport}
               weight={mlWeights[sport] ?? 0}
               nSamples={nSamples[sport] ?? 0}
               isTrained={Boolean(summary.is_trained?.[sport])}
+              threshold={mlThreshold}
               dot={SPORT_DOTS[sport]}
             />
           ))}
         </div>
 
-        {sportsBelow30.length > 0 && (
+        {sportsBelowThreshold.length > 0 && (
           <div className="mt-3 pt-3 border-t border-brand-midgray flex items-start gap-2">
             <span className="text-yellow-500 text-xs shrink-0 mt-0.5">⚠</span>
             <p className="font-display text-xs text-yellow-500">
-              {sportsBelow30.length === SPORTS.length
-                ? `Football / Soccer needs ${ML_ACTIVATION_THRESHOLD} resolved predictions to activate ML. Blue bars show progress.`
-                : `${sportsBelow30.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")} still building toward ${ML_ACTIVATION_THRESHOLD}-sample threshold.`}
+              {sportsBelowThreshold.length === displaySports.length
+                ? `ML needs ${mlThreshold} resolved predictions to activate. Blue bars show progress.`
+                : `${sportsBelowThreshold.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")} still building toward ${mlThreshold}-sample threshold.`}
             </p>
           </div>
         )}

@@ -47,7 +47,7 @@ _EXTERNAL_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 logger = logging.getLogger(__name__)
 
-# Sports the ML engine supports — others are skipped during learning
+# Sports the ML engine supports — soccer-only platform
 _SUPPORTED_ML_SPORTS = {"soccer"}
 
 
@@ -195,6 +195,24 @@ async def _get_or_set_external_cache(db, namespace: str, payload: Dict[str, Any]
     data = fetch_fn()
     await _set_external_cache(db, key, data, ttl_seconds=ttl_seconds)
     return data
+
+
+def _split_learning_records(records: List[Dict], holdout_fraction: float = 0.2, min_holdout: int = 5) -> tuple[List[Dict], List[Dict]]:
+    if len(records) < (min_holdout * 2):
+        return records, []
+
+    ordered = sorted(
+        records,
+        key=lambda rec: (
+            str(rec.get("match_date") or ""),
+            str(rec.get("match_id") or ""),
+        ),
+    )
+    eval_size = max(min_holdout, int(round(len(ordered) * holdout_fraction)))
+    eval_size = min(eval_size, len(ordered) - min_holdout)
+    if eval_size < min_holdout:
+        return ordered, []
+    return ordered[:-eval_size], ordered[-eval_size:]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -659,8 +677,9 @@ async def _trigger_learning_update_impl(db) -> None:
 
     for sport, records in sport_records.items():
         try:
-            retrain_result = prediction_engine.retrain(records, sport=sport)
-            metrics        = prediction_engine.evaluate(records, sport=sport)
+            train_records, eval_records = _split_learning_records(records)
+            retrain_result = prediction_engine.retrain(train_records, sport=sport)
+            metrics = prediction_engine.evaluate(eval_records, sport=sport) if eval_records else {}
             if metrics:
                 group_lost_count = sum(
                     1 for rec in records
@@ -678,8 +697,15 @@ async def _trigger_learning_update_impl(db) -> None:
                     "group_lost_samples": group_lost_count,
                     "avg_group_hit_rate": round(sum(group_hit_rates) / len(group_hit_rates), 4) if group_hit_rates else None,
                     "retrain_result": retrain_result,
+                    "eval_holdout_size": len(eval_records),
                 })
                 logger.info(f"[{sport}] Learning complete: {metrics}")
+            else:
+                logger.info(
+                    "[%s] Learning complete — retrained on %s records, holdout too small for evaluation",
+                    sport,
+                    len(train_records),
+                )
         except Exception as e:
             logger.error(f"[{sport}] Retrain/evaluate failed: {e}", exc_info=True)
 

@@ -34,6 +34,19 @@ from app.services.sport_key_catalog import SPORT_KEYS
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_sport_to_supported(sport: Optional[str]) -> str:
+    """Coerce any sport input to the single supported sport (soccer).
+
+    This keeps the codebase resilient: callers may pass other sports
+    historically, but the platform is intentionally soccer-only.
+    """
+    try:
+        s = (sport or "").lower()
+    except Exception:
+        s = ""
+    return "soccer"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Cache configuration  (unchanged — stable interface)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,18 +65,38 @@ _mem_cache: Dict[str, Dict] = {}
 _quota_state: Dict[str, Any] = {"month": "", "count": 0}
 
 
+def _prune_cache() -> None:
+    now = time.time()
+    expired_keys = [
+        key for key, entry in _mem_cache.items()
+        if now - entry.get("ts", now) >= entry.get("ttl", CACHE_TTL_MEDIUM)
+    ]
+    for key in expired_keys:
+        _mem_cache.pop(key, None)
+
+    max_entries = max(int(getattr(settings, "SEARCH_CACHE_MAX_ENTRIES", 750)), 1)
+    if len(_mem_cache) > max_entries:
+        overflow = len(_mem_cache) - max_entries
+        for key in list(_mem_cache.keys())[:overflow]:
+            _mem_cache.pop(key, None)
+
+
 def _cache_key(ns: str, params: Optional[dict] = None) -> str:
     return hashlib.md5((ns + str(sorted((params or {}).items()))).encode()).hexdigest()
 
 
 def _get_cached(key: str) -> Optional[Any]:
+    _prune_cache()
     entry = _mem_cache.get(key)
     if entry and time.time() - entry["ts"] < entry.get("ttl", CACHE_TTL_MEDIUM):
         return entry["data"]
+    if entry is not None:
+        _mem_cache.pop(key, None)
     return None
 
 
 def _set_cache(key: str, data: Any, ttl: int = CACHE_TTL_MEDIUM) -> None:
+    _prune_cache()
     _mem_cache[key] = {"ts": time.time(), "data": data, "ttl": ttl}
 
 
@@ -392,8 +425,7 @@ def search_serpapi(query: str, num_results: int = 5) -> List[Dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 ESPN_SPORT_MAP = {
-    "soccer":     ("soccer",     "eng.1"),
-    "basketball": ("basketball", "nba"),
+    "soccer": ("soccer", "eng.1"),
 }
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
 _SOCCER_ESPN_LEAGUES = (
@@ -401,13 +433,7 @@ _SOCCER_ESPN_LEAGUES = (
     "uefa.champions", "uefa.europa", "usa.1", "por.1", "ned.1",
     "arg.1", "bra.1", "tur.1", "mex.1", "ksa.1",
 )
-_BASKETBALL_ESPN_LEAGUES = (
-    "nba",
-    "wnba",
-    "mens-college-basketball",
-    "womens-college-basketball",
-    "euroleague",
-)
+# Basketball support removed — platform is soccer-only
 
 
 def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
@@ -417,12 +443,8 @@ def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
         return cached
 
     espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
-    if sport == "soccer":
-        leagues = _SOCCER_ESPN_LEAGUES
-    elif sport == "basketball":
-        leagues = _BASKETBALL_ESPN_LEAGUES
-    else:
-        leagues = (default_league,)
+    # Platform is soccer-only — default to soccer leagues for supported sport
+    leagues = _SOCCER_ESPN_LEAGUES if sport == "soccer" else (default_league,)
     try:
         tl = team_name.lower()
         for league in leagues:
@@ -574,45 +596,7 @@ def _fetch_rapidapi_team_stats(team_name: str, sport: str) -> Optional[Dict[str,
             _set_cache(ck, result, ttl=CACHE_TTL_MEDIUM)
             return result or None
 
-        elif sport == "basketball":
-            # API-NBA
-            headers_nba = {
-                "X-RapidAPI-Key":  settings.RAPID_API_KEY,
-                "X-RapidAPI-Host": RAPIDAPI_HOST_NBA,
-            }
-            resp = requests.get(
-                "https://api-nba-v1.p.rapidapi.com/teams",
-                headers=headers_nba,
-                params={"search": team_name},
-                timeout=8,
-            )
-            if resp.status_code != 200:
-                return None
-            teams = resp.json().get("response", [])
-            if not teams:
-                return None
-
-            team_id = teams[0]["id"]
-            season  = now_wat().year - (1 if now_wat().month < 9 else 0)
-            resp2 = requests.get(
-                "https://api-nba-v1.p.rapidapi.com/teams/statistics",
-                headers=headers_nba,
-                params={"id": team_id, "season": season},
-                timeout=8,
-            )
-            if resp2.status_code != 200:
-                return None
-
-            stats = resp2.json().get("response", [{}])
-            if not stats:
-                return None
-            s = stats[0]
-            result = {
-                "pts_avg":         round(float(s.get("points", 110.0)), 1),
-                "pts_allowed_avg": round(float(s.get("pointsAgainst", 110.0)), 1),
-            }
-            _set_cache(ck, result, ttl=CACHE_TTL_MEDIUM)
-            return result
+        # Non-soccer RapidAPI paths removed — platform is soccer-only
 
     except Exception as e:
         logger.debug(f"RapidAPI stats [{team_name} / {sport}]: {e}")
@@ -641,9 +625,9 @@ def _fetch_combined_team_data(team_name: str, sport: str) -> Dict[str, Any]:
     if cached is not None:
         return cached
 
+    sport = _coerce_sport_to_supported(sport)
     sport_terms = {
-        "soccer":     "goals scored conceded clean sheets form results",
-        "basketball": "points per game offensive defensive rating results",
+        "soccer": "goals scored conceded clean sheets form results",
     }.get(sport, "form results statistics")
     query = f"{team_name} {sport_terms} injuries squad availability {now_wat().year}"
 
@@ -683,6 +667,7 @@ def _parse_combined_text(text: str, team_name: str, sport: str) -> Dict[str, Any
         "estimated_squad_impact": round(float(injury_impact), 4),
     }
 
+    sport = _coerce_sport_to_supported(sport)
     if sport == "soccer":
         scored   = _extract_float(text, r"(?:scores?|scored?|goals?\s+for)[:\s]+(\d+\.?\d*)")
         conceded = _extract_float(text, r"(?:conceded?|goals?\s+against|goals?\s+conceded)[:\s]+(\d+\.?\d*)")
@@ -691,12 +676,7 @@ def _parse_combined_text(text: str, team_name: str, sport: str) -> Dict[str, Any
         out["goals_conceded_avg"] = round(float(conceded or 1.20), 2)
         out["clean_sheet_rate"]   = round(float((cs_rate or 28.0) / 100.0), 3)
 
-    elif sport == "basketball":
-        pts     = _extract_float(text, r"(\d{2,3}\.?\d*)\s*points?\s+per\s+game")
-        pts_all = _extract_float(text, r"allowing\s+(\d{2,3}\.?\d*)")
-        out["pts_avg"]         = round(float(pts     or 110.0), 1)
-        out["pts_allowed_avg"] = round(float(pts_all or 110.0), 1)
-        out["pace_signal"]     = 0.5
+    # Basketball branch removed — platform is soccer-only
 
 
     return out
@@ -718,6 +698,7 @@ def _fetch_combined_h2h_venue(home_team: str, away_team: str, sport: str) -> Dic
     results = search_web(query, num_results=5)
     text    = " ".join(r.get("snippet") or "" for r in results).lower()
 
+    sport = _coerce_sport_to_supported(sport)
     hk = home_team.lower().split()[0]
     ak = away_team.lower().split()[0]
 
@@ -761,6 +742,7 @@ def fetch_recent_form(team_name: str, sport: str, num_games: int = 5) -> Dict[st
     if cached is not None:
         return cached
 
+    sport = _coerce_sport_to_supported(sport)
     espn            = _espn_team_record(team_name, sport)
     espn_wpct       = espn.get("espn_win_pct", 0.5)
     ranking_signal  = espn.get("ranking_signal", 0.5)
@@ -797,6 +779,7 @@ def fetch_injury_report(team_name: str, sport: str) -> Dict[str, Any]:
     if cached is not None:
         return cached
 
+    sport = _coerce_sport_to_supported(sport)
     combined = _fetch_combined_team_data(team_name, sport)
     result = {
         "team":                  team_name,
@@ -847,6 +830,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
     if cached is not None:
         return cached
 
+    sport = _coerce_sport_to_supported(sport)
     # Try RapidAPI for structured sport stats before burning search quota
     rapid_stats = _fetch_rapidapi_team_stats(team_name, sport) or {}
 
@@ -869,12 +853,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
             "goals_conceded_avg", combined.get("goals_conceded_avg",  1.20))
         stats["clean_sheet_rate"]   = combined.get("clean_sheet_rate", 0.28)
 
-    elif sport == "basketball":
-        stats["pts_avg"]            = rapid_stats.get(
-            "pts_avg",            combined.get("pts_avg",         110.0))
-        stats["pts_allowed_avg"]    = rapid_stats.get(
-            "pts_allowed_avg",    combined.get("pts_allowed_avg", 110.0))
-        stats["pace_signal"]        = combined.get("pace_signal", 0.5)
+    # Basketball-specific stats removed — platform is soccer-only
 
 
     # Override win_rate from RapidAPI if available (more accurate than scraped)
@@ -892,7 +871,6 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
 
 _ODDS_SPORT_MAP = {
     "soccer": SPORT_KEYS["soccer"],
-    "basketball": SPORT_KEYS["basketball"],
 }
 
 
@@ -911,6 +889,7 @@ def fetch_betting_odds(home_team: str, away_team: str, sport: str) -> Dict[str, 
     if not settings.ODDS_API_KEY:
         return result
 
+    sport = _coerce_sport_to_supported(sport)
     sport_keys = _ODDS_SPORT_MAP.get(sport.lower(), _ODDS_SPORT_MAP["soccer"])
     try:
         hl, al = home_team.lower(), away_team.lower()

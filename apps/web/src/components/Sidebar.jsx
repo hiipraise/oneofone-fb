@@ -16,9 +16,9 @@ const NAV_ITEMS = [
   { path: "/chat/history", label: "Chat History", icon: "◷" },
 ];
 
-const SPORTS = [
-  { key: "soccer", label: "Football", dot: "bg-brand-green" },
-];
+const SPORT_META = {
+  soccer: { label: "Football", dot: "bg-brand-green" },
+};
 
 function NavItem({ path, label, icon, isActive }) {
   return (
@@ -104,7 +104,14 @@ function QuotaBar({ quota, loading }) {
 }
 
 // ── ML weight row ─────────────────────────────────────────────────────────────
-function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
+function MlWeightRow({
+  sport,
+  weight,
+  nSamples,
+  isTrained,
+  dot,
+  threshold: activationThreshold,
+}) {
   const {
     n,
     wPct,
@@ -113,9 +120,8 @@ function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
     progressPct,
     mlBarColor,
     mlTextColor,
-    threshold,
-  } =
-    getMlWeightState(weight, nSamples, isTrained);
+    threshold: computedThreshold,
+  } = getMlWeightState(weight, nSamples, isTrained, activationThreshold);
 
   return (
     <div className="flex items-center gap-2 py-1">
@@ -135,7 +141,11 @@ function MlWeightRow({ sport, weight, nSamples, isTrained, dot }) {
       <span
         className={`font-display text-xs tabular-nums w-10 text-right ${active ? mlTextColor : "text-blue-400"}`}
       >
-        {active ? `${wPct}%` : readyToTrain ? `${threshold}+` : `${n}/${threshold}`}
+        {active
+          ? `${wPct}%`
+          : readyToTrain
+            ? `${computedThreshold}+`
+            : `${n}/${computedThreshold}`}
       </span>
     </div>
   );
@@ -166,17 +176,24 @@ export default function Sidebar({ isOpen = false, onClose }) {
   const searchSport = new URLSearchParams(location.search).get("sport") || "";
 
   const mlWeights = modelSummary?.ml_weights ?? { soccer: 0 };
-  const nSamples = modelSummary?.n_training_samples ?? {
-    soccer: 0,
-  };
-  const isTrained = modelSummary?.is_trained ?? {
-    soccer: false,
-  };
+  const nSamples = modelSummary?.n_training_samples ?? { soccer: 0 };
+  const isTrained = modelSummary?.is_trained ?? { soccer: false };
   const allSportsMetrics = modelSummary?.performance_metrics_all_sports ?? {};
-  const anyReadyToTrain = SPORTS.some(
+  const mlThreshold =
+    modelSummary?.ml_activation_threshold ?? ML_ACTIVATION_THRESHOLD;
+  const sports = (
+    modelSummary?.supported_sports?.length
+      ? modelSummary.supported_sports
+      : Object.keys(SPORT_META)
+  )
+    .filter((key) => SPORT_META[key])
+    .map((key) => ({
+      key,
+      ...(SPORT_META[key] || { label: key, dot: "bg-gray-500" }),
+    }));
+  const anyReadyToTrain = sports.some(
     (sport) =>
-      (nSamples[sport.key] ?? 0) >= ML_ACTIVATION_THRESHOLD &&
-      !isTrained[sport.key],
+      (nSamples[sport.key] ?? 0) >= mlThreshold && !isTrained[sport.key],
   );
 
   return (
@@ -217,7 +234,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
       <div className="p-3 border-b border-brand-midgray shrink-0">
         <p className="label px-3 py-1.5 mb-1">SPORTS</p>
         <div className="flex flex-col gap-0.5">
-          {SPORTS.map((sport) => (
+          {sports.map((sport) => (
             <Link
               key={sport.key}
               to={`/history?sport=${sport.key}`}
@@ -246,7 +263,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
           <p className="font-display text-xs text-gray-700 px-1">Unavailable</p>
         ) : !modelSummary ? (
           <div className="flex flex-col gap-2 px-1">
-            {SPORTS.map((s) => (
+            {sports.map((s) => (
               <div
                 key={s.key}
                 className="h-3 bg-brand-midgray rounded animate-pulse"
@@ -255,22 +272,23 @@ export default function Sidebar({ isOpen = false, onClose }) {
           </div>
         ) : (
           <div className="flex flex-col gap-0.5 px-1">
-            {SPORTS.map((s) => (
+            {sports.map((s) => (
               <MlWeightRow
                 key={s.key}
                 sport={s.key}
                 weight={mlWeights[s.key]}
                 nSamples={nSamples[s.key]}
                 isTrained={isTrained[s.key]}
+                threshold={mlThreshold}
                 dot={s.dot}
               />
             ))}
             <p className="font-display text-xs text-gray-700 mt-2">
-              {SPORTS.some((s) => Boolean(isTrained[s.key]))
+              {sports.some((s) => Boolean(isTrained[s.key]))
                 ? "Higher = more ML, less prior model"
                 : anyReadyToTrain
                   ? "Activation threshold reached; retraining pending"
-                  : `Building toward ML activation (${ML_ACTIVATION_THRESHOLD} samples per sport)`}
+                  : `Building toward ML activation (${mlThreshold} samples per sport)`}
             </p>
           </div>
         )}
@@ -289,12 +307,12 @@ export default function Sidebar({ isOpen = false, onClose }) {
                 </span>
                 <span
                   className={`font-display text-xs ${
-                    Object.values(isTrained).some(Boolean)
+                    sports.some((sport) => Boolean(isTrained[sport.key]))
                       ? "text-brand-greenlight"
                       : "text-yellow-500"
                   }`}
                 >
-                  {Object.values(isTrained).some(Boolean)
+                  {sports.some((sport) => Boolean(isTrained[sport.key]))
                     ? "ML ACTIVE"
                     : "PRIOR MODE"}
                 </span>
@@ -367,7 +385,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
                 <p className="font-display text-xs text-gray-600 mb-1">
                   TRAINING SAMPLES
                 </p>
-                {SPORTS.map((s) => (
+                {sports.map((s) => (
                   <div
                     key={s.key}
                     className="flex items-center justify-between py-0.5"
@@ -382,7 +400,7 @@ export default function Sidebar({ isOpen = false, onClose }) {
                       className={`font-display text-xs tabular-nums ${
                         (nSamples[s.key] ?? 0) >= 100
                           ? "text-brand-greenlight"
-                          : (nSamples[s.key] ?? 0) >= ML_ACTIVATION_THRESHOLD
+                          : (nSamples[s.key] ?? 0) >= mlThreshold
                             ? "text-yellow-400"
                             : "text-gray-600"
                       }`}

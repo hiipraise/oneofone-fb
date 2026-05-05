@@ -20,18 +20,5 @@ SPORT_KEYS: Dict[str, List[str]] = {
         "soccer_mexico_ligamx",
         "soccer_conmebol_copa_libertadores",
     ],
-    "basketball": [
-        "basketball_nba",
-        "basketball_wnba",
-        "basketball_euroleague",
-        "basketball_eurocup",
-        "basketball_ncaab",
-        "basketball_nbl",
-        "basketball_france_lnb",
-        "basketball_germany_bbl",
-        "basketball_greece_esake",
-        "basketball_spain_acb",
-        "basketball_italy_serie_a",
-        "basketball_turkey_super_league",
-    ],
+    # Basketball support removed — platform is soccer-only
 }

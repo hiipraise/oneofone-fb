@@ -1,3 +1,4 @@
+// src/hooks/useApiContract.js
 import { useEffect, useState } from 'react'
 import { getFrontendContract } from '../services/api'
 import { DEFAULT_API_CONTRACT, normalizeContract } from '../config/apiContract'

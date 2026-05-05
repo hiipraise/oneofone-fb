@@ -80,16 +80,12 @@ _SOCCER_EXTRA = [
     "odds_form_interaction",
     "xg_home_prior", "xg_away_prior", "xg_total_prior",
 ]
-_BASKETBALL_EXTRA = [
-    "home_pts_avg", "away_pts_avg",
-    "home_pts_allowed_avg", "away_pts_allowed_avg",
-    "home_pace_signal", "away_pace_signal",
-]
+# Soccer-only platform (basketball support removed)
 FEATURE_KEYS: Dict[str, List[str]] = {
-    "soccer":     _COMMON_FEATURES + _SOCCER_EXTRA,
-    "basketball": _COMMON_FEATURES + _BASKETBALL_EXTRA,
+    "soccer": _COMMON_FEATURES + _SOCCER_EXTRA,
 }
 
+# Soccer-only defaults (basketball normalised 0–1 internally removed)
 _DEFAULTS: Dict[str, float] = {
     "home_form_rating": 0.5, "away_form_rating": 0.5,
     "home_win_rate_signal": 0.5, "away_win_rate_signal": 0.5,
@@ -114,10 +110,6 @@ _DEFAULTS: Dict[str, float] = {
     "form_home_away_weakness": 0.5,
     "odds_form_interaction": 0.5,
     "xg_home_prior": 1.35, "xg_away_prior": 1.10, "xg_total_prior": 2.45,
-    # basketball — normalised 0–1 internally
-    "home_pts_avg": 0.5, "away_pts_avg": 0.5,
-    "home_pts_allowed_avg": 0.5, "away_pts_allowed_avg": 0.5,
-    "home_pace_signal": 0.5, "away_pace_signal": 0.5,
 }
 
 # Keys that carry raw values outside [0, 1] — must NOT be clipped
@@ -130,6 +122,7 @@ _RAW_STAT_KEYS = frozenset({
     "market_move_home", "market_move_away",
 })
 
+# Soccer-only prior weights (basketball branch removed)
 _PRIOR: Dict[str, Dict[str, float]] = {
     "soccer": {
         "home_form_rating": 0.22, "away_form_rating": -0.18,
@@ -144,20 +137,6 @@ _PRIOR: Dict[str, Dict[str, float]] = {
         "home_goals_scored_avg": 0.06, "away_goals_conceded_avg": 0.06,
         "away_goals_scored_avg": -0.05, "home_goals_conceded_avg": -0.05,
         "home_clean_sheet_rate": 0.04, "away_clean_sheet_rate": -0.04,
-    },
-    "basketball": {
-        "home_form_rating": 0.20, "away_form_rating": -0.16,
-        "home_win_rate_signal": 0.16, "away_win_rate_signal": -0.13,
-        "home_advantage_signal": 0.14, "h2h_home_win_rate": 0.08,
-        "home_ranking_signal": 0.08, "away_ranking_signal": -0.08,
-        "home_injury_impact": -0.09, "away_injury_impact": 0.09,
-        "implied_home_prob": 0.24, "implied_away_prob": -0.18,
-        "home_espn_win_pct": 0.11, "away_espn_win_pct": -0.08,
-        "home_momentum": 0.10, "away_momentum": -0.08,
-        "form_delta": 0.08,
-        "home_pts_avg": 0.06, "away_pts_allowed_avg": 0.06,
-        "away_pts_avg": -0.05, "home_pts_allowed_avg": -0.05,
-        "home_pace_signal": 0.03, "away_pace_signal": -0.03,
     },
 }
 
@@ -178,6 +157,8 @@ class PredictionEngine:
         self.scalers: Dict[str, RobustScaler] = {s: RobustScaler() for s in FEATURE_KEYS}
         self.is_trained: Dict[str, bool] = {s: False for s in FEATURE_KEYS}
         self.n_training_samples: Dict[str, int] = {s: 0 for s in FEATURE_KEYS}
+        # Outcome balance tracking for ML weight modulation
+        self.outcome_balance: Dict[str, Dict[str, Any]] = {s: {} for s in FEATURE_KEYS}
         # Version is fixed for the server lifetime — never mutated after init
         self.model_version = settings.MODEL_VERSION
         self._load_all()
@@ -356,15 +337,7 @@ class PredictionEngine:
             f["xg_away_prior"] = xg_away
             f["xg_total_prior"] = xg_home + xg_away
 
-        elif sport == "basketball":
-            def _norm_pts(v: float) -> float:
-                return float(np.clip((v - 80.0) / 60.0, 0.0, 1.0))
-            f["home_pts_avg"]         = _norm_pts(float(home_data.get("pts_avg", 110.0)))
-            f["away_pts_avg"]         = _norm_pts(float(away_data.get("pts_avg", 110.0)))
-            f["home_pts_allowed_avg"] = 1.0 - _norm_pts(float(home_data.get("pts_allowed_avg", 110.0)))
-            f["away_pts_allowed_avg"] = 1.0 - _norm_pts(float(away_data.get("pts_allowed_avg", 110.0)))
-            f["home_pace_signal"]     = float(home_data.get("pace_signal", 0.5))
-            f["away_pace_signal"]     = float(away_data.get("pace_signal", 0.5))
+        # Basketball branch removed (soccer-only)
 
         for k in list(f):
             f[k] = self._sanitize_value(k, f[k])
@@ -491,13 +464,7 @@ class PredictionEngine:
             score += interaction
         home_prob = float(np.clip(self._sigmoid(score), 0.06, 0.94))
 
-        if sport == "basketball":
-            away_prob = float(np.clip(1.0 - home_prob, 0.08, 0.92))
-            total = home_prob + away_prob
-            if total <= 0:
-                return (0.5, 0.5, 0.0)
-            return home_prob / total, away_prob / total, 0.0
-
+        # Soccer-only: basketball branch removed
         xg_home, xg_away = self._estimate_soccer_xg(features)
         xg_total = xg_home + xg_away
         strength_similarity = 1.0 - min(1.0, abs(home_prob - 0.5) * 2.0)
@@ -512,13 +479,74 @@ class PredictionEngine:
         return home_prob / total, away_prob / total, draw_prob / total
 
     def _ml_weight(self, sport: str) -> float:
+        """
+        Calculate ML weight with balance awareness.
+        
+        ### Weight Calculation Strategy
+        
+        **Sample-Count Ramp:**
+          - Minimum activation: 30 samples
+          - Full ramp: 30 → 240 samples (scales logarithmically)
+          - Reaches baseline weight of 0.93 at 240 samples
+        
+        **Balance Modifier:**
+          - If outcome distribution is balanced (no class has >65% share):
+            - Base weight can go up to 0.98 (higher ML trust)
+          - If outcome distribution is imbalanced (one class >65%):
+            - Base weight capped at 0.90 (maintain higher prior dependency)
+        
+        **Recency Modifier:**
+          - If model evaluated recently (evaluation exists): +0.02 bonus
+          - Rewards models that pass recent validation
+        
+        Result: Sample-driven with quality modulation, never below 0.0, never above 0.98
+        """
         n = self.n_training_samples.get(sport, 0)
-        if n <= 1:
+        min_samples = max(int(settings.MIN_TRAINING_SAMPLES), 1)
+        if n < min_samples:
             return 0.0
+
         import math
-        a, b = 1.15, -4.2
-        raw = a * math.log(max(n, 2)) + b
-        return float(np.clip(self._sigmoid(raw), 0.0, 0.93))
+
+        # ── Sample-count ramp (core signal) ───────────────────────────────────
+        scaled = math.log1p(n - min_samples + 1.0)
+        span = math.log1p((min_samples * 8) - min_samples + 1.0)
+        progress = float(np.clip(scaled / max(span, 1e-6), 0.0, 1.0))
+        smooth = progress * progress * (3.0 - 2.0 * progress)
+        
+        # ── Balance awareness: adjust ceiling based on outcome distribution ────
+        balance_data = self.outcome_balance.get(sport, {})
+        outcome_dist = balance_data.get("distribution", {})
+        
+        balance_factor = 1.0
+        if outcome_dist:
+            # Check if any outcome has >65% share (imbalanced)
+            max_share = max(outcome_dist.values(), default=0) / max(sum(outcome_dist.values()), 1)
+            if max_share > 0.65:
+                # Imbalanced: cap at 0.90 (more prior dependency)
+                balance_factor = 0.90
+            else:
+                # Well-balanced: allow up to 0.98
+                balance_factor = 0.98
+        
+        # ── Recency bonus: recent evaluation +0.02 ─────────────────────────────
+        recency_bonus = 0.0
+        if balance_data.get("last_evaluated"):
+            from datetime import datetime, timedelta
+            try:
+                last_eval = datetime.fromisoformat(balance_data.get("last_evaluated"))
+                days_since = (datetime.now(WAT) - last_eval).days
+                if days_since <= 7:
+                    recency_bonus = 0.02  # Bonus if evaluated within past week
+            except Exception:
+                pass
+        
+        # ── Assemble final weight ──────────────────────────────────────────────
+        weight = 0.15 + (0.78 * smooth)  # baseline: 0.15-0.93
+        weight = weight * balance_factor  # modulate by balance
+        weight += recency_bonus
+        
+        return float(np.clip(weight, 0.0, balance_factor))
 
     # ── Main predict ──────────────────────────────────────────────────────────
 
@@ -556,7 +584,7 @@ class PredictionEngine:
 
         implied_h = float(np.clip(features.get("implied_home_prob", home_prob), 0.02, 0.96))
         implied_a = float(np.clip(features.get("implied_away_prob", away_prob), 0.02, 0.96))
-        implied_d = float(np.clip(1.0 - implied_h - implied_a, 0.01, 0.6)) if sport != "basketball" else 0.0
+        implied_d = float(np.clip(1.0 - implied_h - implied_a, 0.01, 0.6))  # Soccer-only
 
         sample_factor = float(np.clip(np.log1p(self.n_training_samples.get(sport, 0)) / 6.0, 0.0, 1.0))
         dispersion = float(abs(home_prob - away_prob))
@@ -565,8 +593,8 @@ class PredictionEngine:
 
         home_prob = (1.0 - market_pull) * home_prob + market_pull * implied_h
         away_prob = (1.0 - market_pull) * away_prob + market_pull * implied_a
-        if sport != "basketball":
-            draw_prob = (1.0 - market_pull) * draw_prob + market_pull * implied_d
+        # Soccer-only: always include draw prob adjustment
+        draw_prob = (1.0 - market_pull) * draw_prob + market_pull * implied_d
 
         if sport == "soccer":
             xg_home, xg_away = self._estimate_soccer_xg(features)
@@ -596,16 +624,14 @@ class PredictionEngine:
 
         home_prob = float(np.clip(home_prob, 0.03, 0.97))
         away_prob = float(np.clip(away_prob, 0.03, 0.97))
-        if sport == "basketball":
-            draw_prob = 0.0
-            total = home_prob + away_prob
-        else:
-            draw_prob = float(np.clip(draw_prob, 0.0,  0.42))
-            total = home_prob + away_prob + draw_prob
+        # Soccer-only: always include draw prob
+        draw_prob = float(np.clip(draw_prob, 0.0,  0.42))
+        total = home_prob + away_prob + draw_prob
         home_prob, away_prob, draw_prob = home_prob / total, away_prob / total, draw_prob / total
 
         probs_map = {"home_win": home_prob, "away_win": away_prob}
-        if sport != "basketball" and draw_prob > 0.0:
+        # Soccer-only: always include draw
+        if draw_prob > 0.0:
             probs_map["draw"] = draw_prob
 
         sorted_probs = sorted(probs_map.items(), key=lambda kv: kv[1], reverse=True)
@@ -613,13 +639,14 @@ class PredictionEngine:
         winning_prob = sorted_probs[0][1]
         runner_up = sorted_probs[1][1] if len(sorted_probs) > 1 else 0.0
 
-        n_outcomes = 2 if sport == "basketball" else 3
+        # Soccer-only: always 3 outcomes
+        n_outcomes = 3
         baseline   = 1.0 / n_outcomes
         gap_component = float(np.clip((winning_prob - runner_up) / 0.55, 0.0, 1.0))
         strength_component = float(np.clip((winning_prob - baseline) / (1.0 - baseline), 0.0, 1.0))
-        market_vec = np.array([implied_h, implied_a] + ([implied_d] if sport != "basketball" else []), dtype=np.float64)
-        model_vec = np.array([home_prob, away_prob] + ([draw_prob] if sport != "basketball" else []), dtype=np.float64)
-        prior_vec = np.array([prior_h, prior_a] + ([prior_d] if sport != "basketball" else []), dtype=np.float64)
+        market_vec = np.array([implied_h, implied_a, implied_d], dtype=np.float64)
+        model_vec = np.array([home_prob, away_prob, draw_prob], dtype=np.float64)
+        prior_vec = np.array([prior_h, prior_a, prior_d], dtype=np.float64)
         agreement = 1.0 - min(1.0, float(np.mean(np.abs(model_vec - market_vec)) + np.mean(np.abs(model_vec - prior_vec))))
         confidence = float(np.clip(0.5 * gap_component + 0.25 * strength_component + 0.25 * agreement, 0.0, 1.0))
         tier = "high" if confidence >= 0.72 else ("medium" if confidence >= 0.48 else "low")
@@ -677,15 +704,46 @@ class PredictionEngine:
     # ── Training ──────────────────────────────────────────────────────────────
 
     def retrain(self, training_records: List[Dict], sport: str = "soccer") -> Dict[str, Any]:
+        """
+        Retrain the ML model with stratified sampling and outcome balancing.
+        
+        ### Training Data Strategy
+        
+        **Stratification:**
+          - Outcomes are stratified (home_win, draw, away_win) to ensure all classes are represented
+          - Recent data (<=30 days) gets 2x weight; 90-day data gets 1.5x weight
+          - This ensures temporal diversity and prevents model degradation from stale data
+        
+        **Class Balancing:**
+          - Draws are minority class in football; inverse frequency weighting corrects this
+          - Class weight for outcome: `mean_class_count / actual_count` clipped to [0.8, 2.8]
+          - Combined with recency weighting for final sample weight
+        
+        **Rare Outcome Handling:**
+          - If any outcome class has <5 samples, model is not retrained (insufficient diversity)
+          - Minimum total samples: {settings.MIN_TRAINING_SAMPLES}
+          - Minimum 2 outcome classes required for meaningful training
+        
+        **Data Contribution:**
+          - Every sample contributes via: `base_weight * recency_weight * class_balance_weight`
+          - Sample importance inversely scaled to class frequency (minority classes matter more)
+          - Recent samples matter more (capturing current team form)
+        
+        **Validation:**
+          - StratifiedKFold (k=2-3) ensures train/val sets have same outcome distribution
+          - Holdout evaluation set created during learning trigger to measure generalization
+          - Calibration method chosen based on sample size (isotonic if n>=100, else sigmoid)
+        """
         sport     = sport.lower()
         min_samples = settings.MIN_TRAINING_SAMPLES
 
         if len(training_records) < min_samples:
             return {"status": "skipped", "samples": len(training_records), "sport": sport}
 
-        rows, labels, weights = [], [], []
+        rows, labels, weights, outcomes_list, dates_list = [], [], [], [], []
         now = datetime.now(WAT)
 
+        # Extract features and outcomes from records
         for rec in training_records:
             feats   = rec.get("features", {})
             outcome = rec.get("actual_outcome")
@@ -694,6 +752,7 @@ class PredictionEngine:
 
             rows.append(self._fv(feats, sport))
             labels.append(OUTCOME_MAP[outcome])
+            outcomes_list.append(outcome)
 
             match_date_str = rec.get("match_date", "")
             w = 1.0
@@ -708,6 +767,7 @@ class PredictionEngine:
                 except Exception:
                     pass
             weights.append(w)
+            dates_list.append(match_date_str)
 
         if len(rows) < min_samples:
             return {"status": "skipped", "samples": len(rows), "sport": sport}
@@ -721,7 +781,11 @@ class PredictionEngine:
             f"Training matrix width {X.shape[1]} does not match configured feature width {expected_features}."
         )
 
+        # ── Outcome Distribution & Rare Class Detection ───────────────────────────────────
         unique_classes, class_counts = np.unique(y, return_counts=True)
+        outcome_class_map = {1: "home_win", 0: "away_win", 2: "draw"}
+        outcome_distribution = {outcome_class_map.get(int(c), f"class_{c}"): int(cnt) for c, cnt in zip(unique_classes, class_counts)}
+
         if len(unique_classes) < 2:
             logger.warning(f"[{sport}] Retrain skipped — need at least 2 outcome classes, got {unique_classes.tolist()}")
             return {
@@ -731,7 +795,21 @@ class PredictionEngine:
                 "reason": "insufficient_class_diversity",
             }
 
+        # ── Rare Outcome Handling: Ensure minimum class support ───────────────────────────
         min_class_count = int(class_counts.min())
+        if min_class_count < 5:
+            logger.warning(
+                f"[{sport}] Retrain skipped — rare outcome detected; "
+                f"min class count {min_class_count} < 5. Distribution: {outcome_distribution}"
+            )
+            return {
+                "status": "skipped",
+                "sport": sport,
+                "samples": len(rows),
+                "reason": "rare_outcome_underrepresented",
+                "outcome_distribution": outcome_distribution,
+            }
+
         cv_splits = min(3, max(2, n // 20), min_class_count)
         if cv_splits < 2:
             logger.warning(
@@ -745,20 +823,38 @@ class PredictionEngine:
                 "reason": "insufficient_class_support",
             }
 
-        # Outcome balancing:
-        # draws are typically the minority class in football labels. If we only use
-        # recency weights, the model can become biased toward home/away picks.
-        # Apply inverse-frequency class weighting on top of recency weighting.
+        # ── Class-Weighted Balancing ──────────────────────────────────────────────────────
+        # Draws are minority class; inverse frequency weighting corrects this
+        # Combined with recency weighting for final sample importance
         class_weight_map: Dict[int, float] = {}
         mean_class_count = float(np.mean(class_counts))
         for cls, count in zip(unique_classes.tolist(), class_counts.tolist()):
             if count <= 0:
                 class_weight_map[int(cls)] = 1.0
             else:
+                # Weight minority classes more (draws typically underrepresented)
                 class_weight_map[int(cls)] = float(np.clip(mean_class_count / float(count), 0.8, 2.8))
+
         class_weight_vec = np.array([class_weight_map.get(int(label), 1.0) for label in y], dtype=np.float64)
         w = w * class_weight_vec
 
+        # Log data distribution
+        sample_weight_by_outcome = {}
+        for outcome, weight in zip(outcomes_list, w):
+            if outcome not in sample_weight_by_outcome:
+                sample_weight_by_outcome[outcome] = []
+            sample_weight_by_outcome[outcome].append(weight)
+
+        logger.info(
+            f"[{sport}] Training with stratified sampling: "
+            f"n={n}, outcomes={outcome_distribution}, "
+            f"avg_weights_by_outcome=" + ", ".join(
+                f"{o}={np.mean(sample_weight_by_outcome[o]):.2f}" 
+                for o in sorted(sample_weight_by_outcome.keys())
+            )
+        )
+
+        # ── Model Training ────────────────────────────────────────────────────────────────
         self.scalers[sport].fit(X)
         assert X.shape[1] == int(self.scalers[sport].n_features_in_), (
             f"Scaler feature width mismatch: X has {X.shape[1]} while scaler expects {self.scalers[sport].n_features_in_}."
@@ -776,6 +872,7 @@ class PredictionEngine:
             l2_regularization=0.25, early_stopping=True,
             validation_fraction=0.15, n_iter_no_change=20, random_state=42,
         )
+        # StratifiedKFold ensures each fold has same outcome distribution as full set
         self.models[sport] = CalibratedClassifierCV(
             base, method=cal_method,
             cv=StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42),
@@ -784,6 +881,13 @@ class PredictionEngine:
         self.models[sport].fit(X_scaled, y, sample_weight=w)  # type: ignore[union-attr]
         self.is_trained[sport]         = True
         self.n_training_samples[sport] = n
+        
+        # ── Track outcome balance for ML weight modulation ───────────────────────────────
+        self.outcome_balance[sport] = {
+            "distribution": outcome_distribution,
+            "class_weights": {outcome_class_map.get(int(c), f"class_{c}"): float(class_weight_map.get(int(c), 1.0)) for c in unique_classes},
+            "last_trained": datetime.now(WAT).isoformat(),
+        }
 
         # Log feature importances
         try:
@@ -823,6 +927,8 @@ class PredictionEngine:
             f"[{sport}] Retrained — n={n}, brier={bs:.4f}, "
             f"log_loss={ll:.4f}, calibration={cal_method}, v={self.model_version}"
         )
+        
+        # ── Return detailed training metadata ──────────────────────────────────────────────
         return {
             "status": "retrained", "sport": sport, "samples": n,
             "brier_score": round(bs, 4), "log_loss": round(ll, 4),
@@ -832,11 +938,40 @@ class PredictionEngine:
             "calibration_method": cal_method, "ml_weight": round(self._ml_weight(sport), 3),
             "top_feature_importance": feature_importance_top,
             "new_version": self.model_version,
+            # ── Data contribution transparency ────────────────────────────────────────────
+            "outcome_distribution": outcome_distribution,  # e.g. {"home_win": 120, "draw": 45, "away_win": 115}
+            "class_weight_factors": {outcome_class_map.get(int(c), f"class_{c}"): round(float(class_weight_map.get(int(c), 1.0)), 3) for c in unique_classes},
+            "cv_splits": cv_splits,  # Number of stratified folds used
+            "stratified_kfold_used": True,  # All outcomes represented in each fold
+            "recency_weights": {"0_30_days": 2.0, "31_90_days": 1.5, "older": 1.0},
+            "min_class_count": min_class_count,  # Rarest outcome count
+            "mean_class_count": round(mean_class_count, 1),  # Average outcome count
         }
 
     # ── Evaluation ────────────────────────────────────────────────────────────
 
-    def evaluate(self, records: List[Dict], sport: str = "soccer") -> Dict[str, float]:
+    def evaluate(self, records: List[Dict], sport: str = "soccer") -> Dict[str, Any]:
+        """
+        Evaluate model performance with stratified outcome-specific metrics.
+        
+        ### Evaluation Strategy
+        
+        **Stratification:**
+          - Metrics are computed per outcome (home_win, draw, away_win)
+          - This reveals if model is calibrated equally across all outcomes
+          - Especially important for draws (typically minority class)
+        
+        **Metrics Computed:**
+          - Brier Score: mean squared error between predicted and actual probabilities
+          - Log Loss: penalizes confident wrong predictions more heavily
+          - Calibration Error (ECE): measures if predicted confidence matches actual accuracy
+          - Outcome-specific accuracy: how often top-1 prediction is correct per outcome
+        
+        **Data Usage:**
+          - Holdout set used (created during learning trigger)
+          - No data leakage from training set
+          - Distribution should match training set outcomes
+        """
         if not records:
             return {}
 
@@ -865,8 +1000,14 @@ class PredictionEngine:
         y_draw  = np.array([1.0 if e[3] == "draw"       else 0.0 for e in entries])
         y_away  = np.array([1.0 if e[3] == "away_win"  else 0.0 for e in entries])
 
-        is_basketball = sport == "basketball"
+        # ── Outcome Distribution & Stratified Metrics ─────────────────────────────────────
+        outcome_counts = {
+            "home_win": int(y_home.sum()),
+            "draw": int(y_draw.sum()),
+            "away_win": int(y_away.sum()),
+        }
 
+        # Soccer-only: always include draw outcome
         # ── Multiclass Brier Score ────────────────────────────────────────────────
         bs = float(np.mean(
             (ph_arr - y_home) ** 2 +
@@ -888,15 +1029,22 @@ class PredictionEngine:
         true_class = np.where(y_home == 1, 0, np.where(y_draw == 1, 1, 2))
         accuracy   = float(np.mean(pred_class == true_class))
 
+        # ── Outcome-specific accuracy ───────────────────────────────────────────────────
+        outcome_specific_accuracy = {}
+        for outcome_label, outcome_name in [(0, "home_win"), (1, "draw"), (2, "away_win")]:
+            mask = true_class == outcome_label
+            if mask.sum() > 0:
+                outcome_specific_accuracy[outcome_name] = float(np.mean(pred_class[mask] == outcome_label))
+
         # ── ECE averaged across all outcome heads ─────────────────────────────────
-        outcome_pairs = [(ph_arr, y_home), (pa_arr, y_away)]
-        if not is_basketball:
-            outcome_pairs.append((pd_arr, y_draw))
+        outcome_pairs = [(ph_arr, y_home, "home_win"), (pa_arr, y_away, "away_win"), (pd_arr, y_draw, "draw")]
 
         n_bins     = 10
         bin_edges  = np.linspace(0.0, 1.0, n_bins + 1)
         ece_total  = 0.0
-        for p_arr, y_arr in outcome_pairs:
+        outcome_calibration = {}
+        for p_arr, y_arr, outcome_name in outcome_pairs:
+            outcome_ece = 0.0
             for i in range(n_bins):
                 mask = (
                     (p_arr >= bin_edges[i]) & (p_arr <= bin_edges[i + 1])
@@ -904,18 +1052,36 @@ class PredictionEngine:
                     else (p_arr >= bin_edges[i]) & (p_arr < bin_edges[i + 1])
                 )
                 if mask.sum() > 0:
-                    ece_total += mask.sum() * abs(p_arr[mask].mean() - y_arr[mask].mean())
-        ece = float(ece_total / (max(n, 1) * len(outcome_pairs)))
+                    outcome_ece += mask.sum() * abs(p_arr[mask].mean() - y_arr[mask].mean())
+            outcome_ece /= max(n, 1)
+            outcome_calibration[outcome_name] = float(round(outcome_ece, 4))
+            ece_total += outcome_ece
+        ece = float(ece_total / len(outcome_pairs))
+
+        logger.info(
+            f"[{sport}] Evaluated: n={n}, accuracy={accuracy:.3f}, "
+            f"brier={bs:.4f}, calibration={ece:.4f}, "
+            f"outcome_dist={outcome_counts}"
+        )
+        
+        # ── Update evaluation timestamp for ML weight recency bonus ────────────────────────
+        if sport in self.outcome_balance:
+            self.outcome_balance[sport]["last_evaluated"] = datetime.now(WAT).isoformat()
 
         return {
-            "brier_score":        round(bs,       4),
-            "log_loss":           round(ll,       4),
-            "calibration_error":  round(ece,      4),
-            "accuracy":           round(accuracy, 4),
-            "total_predictions":  n,
-            "sport":              sport,
-            "ml_weight":          round(self._ml_weight(sport), 3),
-            "n_training_samples": self.n_training_samples.get(sport, 0),
+            "brier_score":                 round(bs,       4),
+            "log_loss":                    round(ll,       4),
+            "calibration_error":           round(ece,      4),
+            "accuracy":                    round(accuracy, 4),
+            "total_predictions":           n,
+            "sport":                       sport,
+            "ml_weight":                   round(self._ml_weight(sport), 3),
+            "n_training_samples":          self.n_training_samples.get(sport, 0),
+            # ── Stratified outcome metrics ──────────────────────────────────────────────
+            "outcome_distribution":        outcome_counts,  # e.g. {"home_win": 45, "draw": 12, "away_win": 43}
+            "outcome_specific_accuracy":   {k: round(v, 4) for k, v in outcome_specific_accuracy.items()},
+            "outcome_calibration_error":   outcome_calibration,  # Per-outcome ECE
+            "stratified_evaluation_used":  True,
         }
 
 

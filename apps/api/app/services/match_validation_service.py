@@ -1,7 +1,7 @@
 # app/services/match_validation_service.py
 """
 Match Validation Service — The Odds API
-Supports: soccer and basketball only.
+Supports: soccer only.
 """
 import logging
 import re
@@ -66,25 +66,7 @@ ESPN_SCOREBOARD_LEAGUES: Dict[str, List[tuple[str, str, str]]] = {
         ("soccer", "aus.1", "A-League Men"),
         ("soccer", "ksa.1", "Saudi Pro League"),
     ],
-    "basketball": [
-        ("basketball", "nba", "NBA"),
-        ("basketball", "euroleague", "EuroLeague"),
-        ("basketball", "eurocup", "EuroCup"),
-        ("basketball", "mens-college-basketball", "NCAA Men's Basketball"),
-        ("basketball", "acb", "Spain Liga ACB"),
-        ("basketball", "liga-acb", "Spain Liga ACB"),
-        ("basketball", "spain.acb", "Spain Liga ACB"),
-        ("basketball", "italy.lega.a", "Italy Lega A"),
-        ("basketball", "lega-a", "Italy Lega A"),
-        ("basketball", "germany.bbl", "Germany BBL"),
-        ("basketball", "easycredit-bbl", "Germany BBL"),
-        ("basketball", "greece.a1", "Greece Basket League"),
-        ("basketball", "esake", "Greece Basket League"),
-        ("basketball", "france.lnb", "France Pro A"),
-        ("basketball", "betclic-elite", "France Pro A"),
-        ("basketball", "turkey.bsl", "Turkey BSL"),
-        ("basketball", "turkish-bsl", "Turkey BSL"),
-    ],
+    # Basketball support removed — platform is soccer-only
 }
 
 

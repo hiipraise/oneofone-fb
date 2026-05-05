@@ -11,6 +11,14 @@ import { triggerLearning } from "../services/api";
 import ConfidenceHistoryChart from "../charts/ConfidenceHistoryChart";
 import SportPerformanceChart from "../charts/SportPerformanceChart";
 import { formatWatDate } from "../utils/wat";
+import {
+  getMlWeightBarColor,
+  getMlWeightTextColor,
+  getCalibrationMethod,
+  getCalibrationColor,
+  SAMPLE_THRESHOLD_CALIBRATION,
+  SAMPLE_THRESHOLD_MID,
+} from "../components/MlWeightLogic";
 
 const SPORT_DOTS = {
   soccer: "bg-brand-green",
@@ -176,7 +184,15 @@ function SportModelTable({ summary }) {
   const mlWeights = summary.ml_weights || {};
   const nSamples = summary.n_training_samples || {};
   const isTrained = summary.is_trained || {};
-  const sports = ["soccer"];
+  const mlThreshold = summary.ml_activation_threshold ?? 30;
+  const sports = (
+    summary.supported_sports?.length
+      ? summary.supported_sports
+      : Object.keys(nSamples).length
+        ? Object.keys(nSamples)
+        : ["soccer"]
+  ).filter((sport) => sport === "soccer");
+  const displaySports = sports.length ? sports : ["soccer"];
 
   return (
     <div className="card overflow-hidden">
@@ -202,49 +218,35 @@ function SportModelTable({ summary }) {
             </tr>
           </thead>
           <tbody>
-            {sports.map((sport) => {
+            {displaySports.map((sport) => {
               const weight = mlWeights[sport] ?? 0;
               const n = nSamples[sport] ?? 0;
               const trained = isTrained[sport] ?? false;
 
-              // Calibration: only meaningful once ML is active
-              const calLabel =
-                n >= 100 ? "isotonic" : n >= 30 ? "sigmoid" : "prior";
-              const calColor =
-                n >= 100
-                  ? "text-brand-greenlight"
-                  : n >= 30
-                    ? "text-yellow-400"
-                    : "text-gray-600";
+              const calLabel = getCalibrationMethod(n);
+              const calColor = getCalibrationColor(n);
 
-              // ML weight bar (only non-zero once n≥30)
               const wPct = Math.round(weight * 100);
-              const barColor =
-                wPct >= 60
-                  ? "bg-brand-green"
-                  : wPct >= 30
-                    ? "bg-yellow-500"
-                    : "bg-brand-midgray";
-              const wColor =
-                wPct >= 60
-                  ? "text-brand-greenlight"
-                  : wPct >= 30
-                    ? "text-yellow-400"
-                    : "text-gray-600";
+              const barColor = getMlWeightBarColor(wPct);
+              const wColor = getMlWeightTextColor(wPct);
 
-              // Progress toward next threshold (30 → ML active, 100 → isotonic)
-              const nextThreshold = n < 30 ? 30 : n < 100 ? 100 : null;
+              const nextThreshold =
+                n < SAMPLE_THRESHOLD_MID
+                  ? SAMPLE_THRESHOLD_MID
+                  : n < SAMPLE_THRESHOLD_CALIBRATION
+                    ? SAMPLE_THRESHOLD_CALIBRATION
+                    : null;
               const progressPct = nextThreshold
                 ? Math.round((n / nextThreshold) * 100)
                 : 100;
               const progressColor =
-                n >= 100
+                n >= SAMPLE_THRESHOLD_CALIBRATION
                   ? "bg-brand-green"
-                  : n >= 30
+                  : n >= SAMPLE_THRESHOLD_MID
                     ? "bg-yellow-500"
                     : "bg-blue-500";
               const progressLabel = nextThreshold
-                ? `${nextThreshold - n} more → ${nextThreshold >= 100 ? "isotonic" : "ML active"}`
+                ? `${nextThreshold - n} more → ${nextThreshold >= SAMPLE_THRESHOLD_CALIBRATION ? "isotonic" : "ML active"}`
                 : "Max calibration";
 
               return (
@@ -252,11 +254,10 @@ function SportModelTable({ summary }) {
                   key={sport}
                   className="border-b border-brand-midgray hover:bg-brand-gray transition-colors"
                 >
-                  {/* Sport */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`w-2 h-2 rounded-full ${SPORT_DOTS[sport]}`}
+                        className={`w-2 h-2 rounded-full ${SPORT_DOTS[sport] || "bg-gray-500"}`}
                       />
                       <span className="font-display text-xs text-white capitalize">
                         {sport}
@@ -264,7 +265,6 @@ function SportModelTable({ summary }) {
                     </div>
                   </td>
 
-                  {/* Status badge */}
                   <td className="px-4 py-3">
                     <span
                       className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
@@ -277,7 +277,6 @@ function SportModelTable({ summary }) {
                     </span>
                   </td>
 
-                  {/* ML weight bar */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-[100px]">
                       <div className="flex-1 h-1.5 bg-brand-darkgray rounded-full overflow-hidden">
@@ -294,22 +293,14 @@ function SportModelTable({ summary }) {
                     </div>
                   </td>
 
-                  {/* Training samples */}
                   <td className="px-4 py-3">
                     <span
-                      className={`font-display text-xs tabular-nums ${
-                        n >= 100
-                          ? "text-brand-greenlight"
-                          : n >= 30
-                            ? "text-yellow-400"
-                            : "text-gray-400"
-                      }`}
+                      className={`font-display text-xs tabular-nums ${getCalibrationColor(n)}`}
                     >
                       {n.toLocaleString()}
                     </span>
                   </td>
 
-                  {/* Calibration — shows method name or "prior" with clear colour */}
                   <td className="px-4 py-3">
                     <span
                       className={`font-display text-xs uppercase ${calColor}`}
@@ -318,7 +309,6 @@ function SportModelTable({ summary }) {
                     </span>
                   </td>
 
-                  {/* Progress bar toward next threshold */}
                   <td className="px-4 py-3 min-w-[180px]">
                     {nextThreshold ? (
                       <div>
@@ -522,7 +512,11 @@ export default function MetricsPage() {
                   RESOLVED (SCORED)
                 </span>
                 <span className="font-display text-xs text-gray-300 tabular-nums">
-                  {(summary.total_resolved_scored ?? summary.total_resolved ?? 0).toLocaleString()}
+                  {(
+                    summary.total_resolved_scored ??
+                    summary.total_resolved ??
+                    0
+                  ).toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between items-center py-2">

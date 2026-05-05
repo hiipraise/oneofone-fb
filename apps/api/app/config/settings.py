@@ -31,6 +31,21 @@ class Settings(BaseSettings):
     MODEL_VERSION:        str = "5.0.0"
     MIN_TRAINING_SAMPLES: int = 30
     CALIBRATION_METHOD:   str = "isotonic"
+    # Supported sports for the platform (single-source-of-truth)
+    SUPPORTED_SPORTS: list = ["soccer"]
+
+    # In-process cache and session memory caps
+    SEARCH_CACHE_MAX_ENTRIES: int = 750
+    CHAT_SESSION_TOPIC_LIMIT: int = 100
+    CHAT_SESSION_PREDICTION_LIMIT: int = 200
+
+    # Platform report thresholds
+    REPORT_ACCURACY_GOOD: float = 0.58
+    REPORT_ACCURACY_NEEDS: float = 0.55
+    REPORT_BRIER_GOOD: float = 0.42
+    REPORT_BRIER_NEEDS: float = 0.50
+    REPORT_RESOLUTION_GOOD: float = 0.50
+    REPORT_LOW_CONFIDENCE: float = 0.55
 
     # Search budget (Serper.dev: 2,500/month free; cap at 2,400 for safety buffer)
     SERPAPI_MONTHLY_BUDGET: int = 2_400

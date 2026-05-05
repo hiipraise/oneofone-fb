@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from app.utils.timezone import WAT
 from fastapi import APIRouter, Query
 from app.config.database import get_db
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,7 +37,7 @@ async def get_metrics_summary():
     from app.ml.prediction_engine import prediction_engine
     db = get_db()
 
-    sports = [METRIC_SPORT]
+    sports = ["soccer"]  # Soccer-only platform
 
     actual_results: dict[str, str] = {}
     total_resolved_raw = 0
@@ -150,6 +151,16 @@ async def get_metrics_summary():
         "is_trained": is_trained,
         "n_training_samples": n_training,
         "ml_weights": ml_weights,
+        "ml_activation_threshold": settings.MIN_TRAINING_SAMPLES,
+        "supported_sports": sports,
+        "report_thresholds": {
+            "accuracy_good": settings.REPORT_ACCURACY_GOOD,
+            "accuracy_needs": settings.REPORT_ACCURACY_NEEDS,
+            "brier_good": settings.REPORT_BRIER_GOOD,
+            "brier_needs": settings.REPORT_BRIER_NEEDS,
+            "resolution_good": settings.REPORT_RESOLUTION_GOOD,
+            "low_confidence": settings.REPORT_LOW_CONFIDENCE,
+        },
     }
 
 
