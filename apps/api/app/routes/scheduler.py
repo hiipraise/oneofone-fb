@@ -49,6 +49,63 @@ def _play_rank_from_confidence(confidence: Optional[float]) -> int:
     if c > 0:
         return 1
     return 0
+
+
+def _rank_sort_key(row: dict) -> tuple[int, int, float, str]:
+    """Sort generated predictions into a stable ranked order for schedule views."""
+    rank = row.get("overall_rank")
+    try:
+        rank_value = int(rank)
+    except (TypeError, ValueError):
+        rank_value = 10_000
+
+    play_rank = row.get("play_rank")
+    try:
+        play_rank_value = int(play_rank)
+    except (TypeError, ValueError):
+        play_rank_value = 0
+
+    confidence = row.get("confidence_score")
+    try:
+        confidence_value = float(confidence)
+    except (TypeError, ValueError):
+        confidence_value = 0.0
+
+    return (
+        rank_value,
+        -play_rank_value,
+        -confidence_value,
+        str(row.get("match_id") or ""),
+    )
+
+
+def _group_sort_key(group: dict) -> tuple[int, int, float, str]:
+    """Keep prediction groups in their assigned sequence instead of API insertion order."""
+    group_index = group.get("group_index")
+    try:
+        group_index_value = int(group_index)
+    except (TypeError, ValueError):
+        group_index_value = 10_000
+
+    play_rank = group.get("play_rank")
+    try:
+        play_rank_value = int(play_rank)
+    except (TypeError, ValueError):
+        play_rank_value = 0
+
+    confidence = group.get("avg_confidence_score")
+    try:
+        confidence_value = float(confidence)
+    except (TypeError, ValueError):
+        confidence_value = 0.0
+
+    return (
+        group_index_value,
+        -play_rank_value,
+        -confidence_value,
+        str(group.get("group_id") or ""),
+    )
+
 def _require_db():
     db = get_db()
     if db is None:
@@ -279,10 +336,16 @@ async def get_today_fixtures(
             "play_rank": _play_rank_from_confidence(avg_confidence),
         })
 
+    sorted_result = {
+        sport_key: sorted(rows, key=_rank_sort_key)
+        for sport_key, rows in result.items()
+    }
+    enriched_groups = sorted(enriched_groups, key=_group_sort_key)
+
     if normalized_sport:
-        filtered_result = {normalized_sport: result.get(normalized_sport, [])}
+        filtered_result = {normalized_sport: sorted_result.get(normalized_sport, [])}
     else:
-        filtered_result = result
+        filtered_result = sorted_result
 
     return {
         "date": target_date,
