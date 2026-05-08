@@ -13,6 +13,66 @@ router = APIRouter()
 METRIC_SPORT = "soccer"
 
 
+def _actual_btts_from_result(result: dict) -> str | None:
+    home_score = result.get("home_score")
+    away_score = result.get("away_score")
+    try:
+        if home_score is None or away_score is None:
+            return None
+        return "Yes" if int(home_score) > 0 and int(away_score) > 0 else "No"
+    except (TypeError, ValueError):
+        return None
+
+
+def _predicted_btts_from_prediction(prediction: dict) -> str | None:
+    btts = (prediction.get("extended_markets") or {}).get("btts") or {}
+    result = btts.get("result")
+    if isinstance(result, str) and result.lower() in {"yes", "no"}:
+        return result.title()
+
+    yes = btts.get("yes")
+    no = btts.get("no")
+    try:
+        if yes is None and no is None:
+            return None
+        if yes is None:
+            return "No" if float(no) >= 0.5 else "Yes"
+        if no is None:
+            return "Yes" if float(yes) >= 0.5 else "No"
+        return "Yes" if float(yes) >= float(no) else "No"
+    except (TypeError, ValueError):
+        return None
+
+
+def _empty_market_accuracy(label: str) -> dict:
+    return {
+        "label": label,
+        "total": 0,
+        "correct": 0,
+        "miss": 0,
+        "accuracy": None,
+        "predicted_yes": 0,
+        "predicted_no": 0,
+        "actual_yes": 0,
+        "actual_no": 0,
+        "by_prediction": {
+            "Yes": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+            "No": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+        },
+    }
+
+
+def _finalize_market_accuracy(stats: dict) -> dict:
+    if stats["total"]:
+        stats["accuracy"] = round(stats["correct"] / stats["total"], 4)
+
+    for bucket in stats["by_prediction"].values():
+        if bucket["total"]:
+            bucket["accuracy"] = round(bucket["correct"] / bucket["total"], 4)
+
+    return stats
+
+
 @router.get("/")
 async def get_metrics(limit: int = Query(30, ge=1, le=200)):
     db = get_db()
@@ -39,11 +99,15 @@ async def get_metrics_summary():
 
     sports = ["soccer"]  # Soccer-only platform
 
-    actual_results: dict[str, str] = {}
+    actual_results: dict[str, dict] = {}
     total_resolved_raw = 0
     async for doc in db.actual_results.find({}):
         total_resolved_raw += 1
-        actual_results[doc["match_id"]] = doc.get("actual_outcome")
+        actual_results[doc["match_id"]] = doc
+
+    market_accuracy_by_type = {
+        "gg": _empty_market_accuracy("GG (Both Teams to Score)"),
+    }
 
     records_by_sport: dict[str, list[dict[str, object]]] = {s: [] for s in sports}
     db_sport_counts: dict[str, int] = {s: 0 for s in sports}
@@ -56,7 +120,25 @@ async def get_metrics_summary():
         ):
             mid = pred.get("match_id")
             sport = pred.get("sport", "soccer")
-            actual_outcome = actual_results.get(mid)
+            result_doc = actual_results.get(mid) or {}
+            actual_outcome = result_doc.get("actual_outcome")
+
+            predicted_btts = _predicted_btts_from_prediction(pred)
+            actual_btts = _actual_btts_from_result(result_doc)
+            if predicted_btts and actual_btts:
+                gg_stats = market_accuracy_by_type["gg"]
+                gg_stats["total"] += 1
+                gg_stats[f"predicted_{predicted_btts.lower()}"] += 1
+                gg_stats[f"actual_{actual_btts.lower()}"] += 1
+                gg_bucket = gg_stats["by_prediction"][predicted_btts]
+                gg_bucket["total"] += 1
+                if predicted_btts == actual_btts:
+                    gg_stats["correct"] += 1
+                    gg_bucket["correct"] += 1
+                else:
+                    gg_stats["miss"] += 1
+                    gg_bucket["miss"] += 1
+
             if sport in db_sport_counts:
                 db_sport_counts[sport] += 1
                 sport_accuracy[sport]["count"] += 1
@@ -153,6 +235,10 @@ async def get_metrics_summary():
         "ml_weights": ml_weights,
         "ml_activation_threshold": settings.MIN_TRAINING_SAMPLES,
         "supported_sports": sports,
+        "market_accuracy_by_type": {
+            key: _finalize_market_accuracy(value)
+            for key, value in market_accuracy_by_type.items()
+        },
         "report_thresholds": {
             "accuracy_good": settings.REPORT_ACCURACY_GOOD,
             "accuracy_needs": settings.REPORT_ACCURACY_NEEDS,
