@@ -56,6 +56,44 @@ function BttsBadge({ btts }) {
   )
 }
 
+
+function getActualBtts(resolvedMatch) {
+  if (resolvedMatch?.home_score == null || resolvedMatch?.away_score == null) return null
+  const homeScore = Number(resolvedMatch.home_score)
+  const awayScore = Number(resolvedMatch.away_score)
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null
+  return homeScore > 0 && awayScore > 0 ? 'Yes' : 'No'
+}
+
+function getPredictedBtts(btts) {
+  if (!btts) return null
+  if (['Yes', 'No'].includes(btts.result)) return btts.result
+
+  const yes = Number(btts.yes)
+  const no = Number(btts.no)
+  if (Number.isFinite(yes) && Number.isFinite(no)) return yes >= no ? 'Yes' : 'No'
+  if (Number.isFinite(yes)) return yes >= 0.5 ? 'Yes' : 'No'
+  if (Number.isFinite(no)) return no >= 0.5 ? 'No' : 'Yes'
+  return null
+}
+
+function BttsAccuracyBadge({ btts, resolvedMatch }) {
+  const predicted = getPredictedBtts(btts)
+  const actual = getActualBtts(resolvedMatch)
+  if (!predicted || !actual) return null
+
+  const correct = predicted === actual
+  return (
+    <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+      correct
+        ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+        : 'text-brand-redlight bg-brand-reddark border-brand-red'
+    }`}>
+      GG {correct ? '✔ Correct' : '✖ Miss'}
+    </span>
+  )
+}
+
 function CornersBadge({ corners }) {
   if (!corners) return null
   const expected = Number(corners.expected_total)
@@ -224,6 +262,7 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <p className="font-display text-xs text-gray-500 mt-0.5">v{model_version}</p>
           </div>
           <BttsBadge btts={bttsData} />
+          <BttsAccuracyBadge btts={bttsData} resolvedMatch={resolvedMatch} />
           <CornersBadge corners={cornersData} />
         </div>
         <button
@@ -253,9 +292,16 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
                 Actual outcome: {resolvedMatch.actual_outcome.replace('_', ' ').toUpperCase()}
               </p>
               {(resolvedMatch.home_score != null && resolvedMatch.away_score != null) && (
-                <p className="font-display text-xs text-gray-600 mt-1">
-                  Final score: {resolvedMatch.home_score} - {resolvedMatch.away_score}
-                </p>
+                <>
+                  <p className="font-display text-xs text-gray-600 mt-1">
+                    Final score: {resolvedMatch.home_score} - {resolvedMatch.away_score}
+                  </p>
+                  {bttsData && (
+                    <p className="font-display text-xs text-gray-600 mt-1">
+                      GG actual: {getActualBtts(resolvedMatch) || '—'} · Predicted: {getPredictedBtts(bttsData) || '—'}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
