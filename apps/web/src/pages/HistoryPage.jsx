@@ -12,6 +12,39 @@ const SPORT = 'soccer'
 
 const todayISO = () => watTodayISO()
 
+const numericValue = (value, fallback = Number.MAX_SAFE_INTEGER) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+const groupIndexFromId = (groupId) => {
+  const match = String(groupId || '').match(/-G(\d+)$/i)
+  return match ? numericValue(match[1]) : Number.MAX_SAFE_INTEGER
+}
+
+const compareGroupHistory = (a, b) => {
+  const dateCompare = String(b.matchDate || '').localeCompare(String(a.matchDate || ''))
+  if (dateCompare !== 0) return dateCompare
+
+  const groupA = numericValue(a.groupIndex, groupIndexFromId(a.groupId))
+  const groupB = numericValue(b.groupIndex, groupIndexFromId(b.groupId))
+  if (groupA !== groupB) return groupA - groupB
+
+  return String(a.groupId || '').localeCompare(String(b.groupId || ''), undefined, { numeric: true })
+}
+
+const compareGroupGames = (a, b) => {
+  const playA = numericValue(a.playRank, 0)
+  const playB = numericValue(b.playRank, 0)
+  if (playA !== playB) return playB - playA
+
+  const confidenceA = numericValue(a.confidenceScore, 0)
+  const confidenceB = numericValue(b.confidenceScore, 0)
+  if (confidenceA !== confidenceB) return confidenceB - confidenceA
+
+  return String(a.matchId || '').localeCompare(String(b.matchId || ''), undefined, { numeric: true })
+}
+
 export default function HistoryPage() {
   const [searchParams] = useSearchParams()
   const defaultSport = searchParams.get('sport') || SPORT
@@ -81,6 +114,8 @@ export default function HistoryPage() {
         actualOutcome: resolved?.actual_outcome || null,
         isResolved,
         isCorrect,
+        playRank: pred.play_rank,
+        confidenceScore: pred.confidence_score,
       })
 
       groups.set(groupId, existing)
@@ -96,10 +131,11 @@ export default function HistoryPage() {
           status: isResolved ? (g.hits === g.games ? 'won' : 'lost') : 'pending',
           hitRate,
           sportsLabel: Array.from(g.sports).join(', ').toUpperCase() || '—',
+          gameItems: [...g.gameItems].sort(compareGroupGames),
           groupLabel: g.groupIndex ? `G${g.groupIndex}` : 'GROUP',
         }
       })
-      .sort((a, b) => String(b.matchDate).localeCompare(String(a.matchDate)))
+      .sort(compareGroupHistory)
   }, [data, resolvedMatches])
 
   // Client-side search filter
