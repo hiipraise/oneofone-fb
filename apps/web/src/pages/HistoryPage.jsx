@@ -12,6 +12,45 @@ const SPORT = 'soccer'
 
 const todayISO = () => watTodayISO()
 
+const predictionDateValue = (prediction) => {
+  const rawDate = prediction?.match_date || prediction?.timestamp || ''
+  const time = rawDate ? Date.parse(rawDate) : NaN
+  return Number.isFinite(time) ? time : 0
+}
+
+const predictionDateKey = (prediction) => {
+  const rawDate = prediction?.match_date || prediction?.timestamp || ''
+  if (!rawDate) return 'Unscheduled'
+
+  const dateOnly = String(rawDate).slice(0, 10)
+  return dateOnly || 'Unscheduled'
+}
+
+const formatPredictionDateLabel = (dateKey) => {
+  if (!dateKey || dateKey === 'Unscheduled') return 'Unscheduled'
+
+  const date = new Date(`${dateKey}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return dateKey
+
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date)
+}
+
+const comparePredictionsByDate = (a, b) => {
+  const dateCompare = predictionDateValue(b) - predictionDateValue(a)
+  if (dateCompare !== 0) return dateCompare
+
+  const confidenceA = numericValue(a?.confidence_score, 0)
+  const confidenceB = numericValue(b?.confidence_score, 0)
+  if (confidenceA !== confidenceB) return confidenceB - confidenceA
+
+  return String(a?.match_id || '').localeCompare(String(b?.match_id || ''), undefined, { numeric: true })
+}
+
 const numericValue = (value, fallback = Number.MAX_SAFE_INTEGER) => {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
@@ -51,7 +90,7 @@ export default function HistoryPage() {
   const validSport = defaultSport === SPORT ? SPORT : SPORT
 
   const [sport]       = useState(validSport)
-  const [view, setView]         = useState('table')
+  const [view, setView]         = useState('byDate')
   const [expandedGroupId, setExpandedGroupId] = useState(null)
   const [search, setSearch]     = useState('')
   const [resultForm, setResultForm] = useState({
@@ -138,18 +177,47 @@ export default function HistoryPage() {
       .sort(compareGroupHistory)
   }, [data, resolvedMatches])
 
-  // Client-side search filter
-  const filtered = search.trim().length > 1
-    ? data.filter(p => {
-        const q = search.toLowerCase()
-        return (
-          p.home_team?.toLowerCase().includes(q) ||
-          p.away_team?.toLowerCase().includes(q) ||
-          p.match_id?.toLowerCase().includes(q) ||
-          p.league?.toLowerCase().includes(q)
-        )
-      })
-    : data
+  const sortedPredictions = useMemo(
+    () => [...data].sort(comparePredictionsByDate),
+    [data],
+  )
+
+  // Client-side search filter, kept in date order.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (q.length <= 1) return sortedPredictions
+
+    return sortedPredictions.filter(p => (
+      p.home_team?.toLowerCase().includes(q) ||
+      p.away_team?.toLowerCase().includes(q) ||
+      p.match_id?.toLowerCase().includes(q) ||
+      p.league?.toLowerCase().includes(q) ||
+      predictionDateKey(p).toLowerCase().includes(q)
+    ))
+  }, [search, sortedPredictions])
+
+  const predictionsByDate = useMemo(() => {
+    const groups = new Map()
+
+    for (const pred of filtered) {
+      const dateKey = predictionDateKey(pred)
+      const existing = groups.get(dateKey) || {
+        dateKey,
+        label: formatPredictionDateLabel(dateKey),
+        count: 0,
+        predictions: [],
+      }
+      existing.count += 1
+      existing.predictions.push(pred)
+      groups.set(dateKey, existing)
+    }
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.dateKey === 'Unscheduled') return 1
+      if (b.dateKey === 'Unscheduled') return -1
+      return String(b.dateKey).localeCompare(String(a.dateKey))
+    })
+  }, [filtered])
 
   const handleResultSubmit = async (e) => {
     e.preventDefault()
@@ -203,7 +271,11 @@ export default function HistoryPage() {
             {filtered.length} of {data.length} predictions · click row for match ID
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={() => setView('byDate')}
+            className={view === 'byDate' ? 'btn-primary' : 'btn-ghost'}
+          >BY DATE</button>
           <button
             onClick={() => setView('table')}
             className={view === 'table' ? 'btn-primary' : 'btn-ghost'}
@@ -220,23 +292,44 @@ export default function HistoryPage() {
       </div>
 
       {/* Filters row */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="font-display text-xs px-3 py-1 rounded-sm border bg-brand-red border-brand-red text-white">
-          FOOTBALL / SOCCER
-        </div>
+      <div className="sticky top-0 z-30 -mx-4 md:-mx-6 mb-5 border-y border-brand-midgray bg-brand-black/95 px-4 py-3 backdrop-blur md:px-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="font-display text-xs px-3 py-1 rounded-sm border bg-brand-red border-brand-red text-white">
+            FOOTBALL / SOCCER
+          </div>
 
-        <div className="flex-1 min-w-[180px] max-w-xs">
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search team, match ID, league..."
-            className="w-full bg-brand-gray border border-brand-midgray focus:border-brand-red outline-none text-white font-body text-xs px-3 py-1.5 rounded-sm placeholder-gray-700 transition-colors"
-          />
-        </div>
+          <div className="flex-1 min-w-[180px] max-w-xs">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search team, match ID, league, date..."
+              className="w-full bg-brand-gray border border-brand-midgray focus:border-brand-red outline-none text-white font-body text-xs px-3 py-1.5 rounded-sm placeholder-gray-700 transition-colors"
+            />
+          </div>
 
-        {loading && (
-          <div className="w-4 h-4 border-2 border-brand-red border-t-transparent rounded-full animate-spin" />
-        )}
+          <button
+            type="button"
+            onClick={() => setSearch(search.trim())}
+            className="btn-primary sticky right-4 shrink-0"
+            aria-label="Search prediction history"
+          >
+            SEARCH
+          </button>
+
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="btn-ghost shrink-0"
+            >
+              CLEAR
+            </button>
+          )}
+
+          {loading && (
+            <div className="w-4 h-4 border-2 border-brand-red border-t-transparent rounded-full animate-spin" />
+          )}
+        </div>
       </div>
 
       {error && (
@@ -246,7 +339,51 @@ export default function HistoryPage() {
       )}
 
       {/* Predictions */}
-      {view === 'table' ? (
+      {view === 'byDate' ? (
+        <div className="space-y-4">
+          {loading
+            ? [...Array(3)].map((_, i) => (
+                <div key={i} className="card p-4 animate-pulse">
+                  <div className="h-4 bg-brand-midgray rounded w-44 mb-4" />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                    <div className="h-40 bg-brand-midgray/60 rounded" />
+                    <div className="h-40 bg-brand-midgray/60 rounded hidden lg:block" />
+                    <div className="h-40 bg-brand-midgray/60 rounded hidden xl:block" />
+                  </div>
+                </div>
+              ))
+            : predictionsByDate.map((group) => (
+                <section key={group.dateKey} className="card overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-brand-midgray bg-brand-darkgray px-4 py-3">
+                    <div>
+                      <p className="font-display text-sm text-white">{group.label}</p>
+                      <p className="font-body text-xs text-gray-600 mt-1">
+                        Predictions grouped by this match date
+                      </p>
+                    </div>
+                    <span className="font-display text-xs px-2 py-1 rounded-sm border border-brand-midgray text-gray-300 tabular-nums">
+                      {group.count} PREDICTION{group.count === 1 ? '' : 'S'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 p-3">
+                    {group.predictions.map((pred, i) => (
+                      <PredictionCard
+                        key={pred.match_id || `${group.dateKey}-${i}`}
+                        prediction={pred}
+                        resolvedMatch={resolvedMatches[pred.match_id]}
+                        engineStatusBySport={engineStatusBySport}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+          {!loading && !predictionsByDate.length && (
+            <div className="card p-8 text-center">
+              <p className="font-display text-gray-600 text-sm">NO PREDICTIONS MATCH YOUR FILTER</p>
+            </div>
+          )}
+        </div>
+      ) : view === 'table' ? (
         <PredictionTable
           predictions={filtered}
           resolvedMatches={resolvedMatches}
