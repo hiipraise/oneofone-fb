@@ -115,13 +115,19 @@ def _corners(home_form: float, away_form: float, home_att: float, away_att: floa
     home_cx = 5.2 * (0.55 + 0.8 * home_att) * (0.65 + 0.6 * home_form)
     away_cx = 5.2 * (0.55 + 0.8 * away_att) * (0.65 + 0.6 * away_form)
     total = float(np.clip(home_cx + away_cx, 5.0, 17.0))
-    result: Dict[str, Any] = {"expected_total": round(total, 2)}
+    # Track a primary corners pick so submitted final corner totals can be
+    # resolved as CORRECT/MISS consistently in reports and history. 9.5 is a
+    # common totals line and the half-corner line avoids push handling.
+    primary_line = 9.5
+    result: Dict[str, Any] = {"expected_total": round(total, 2), "line": primary_line}
     for line in [7.5, 8.5, 9.5, 10.5, 11.5, 12.5]:
         key = f"line_{str(line).replace('.', '_')}"
-        result[key] = {
-            "over":  round(float(np.clip(1.0 - _cdf(int(line), total), 0.01, 0.99)), 4),
-            "under": round(float(np.clip(_cdf(int(line), total), 0.01, 0.99)), 4),
-        }
+        over = round(float(np.clip(1.0 - _cdf(int(line), total), 0.01, 0.99)), 4)
+        under = round(float(np.clip(_cdf(int(line), total), 0.01, 0.99)), 4)
+        result[key] = {"over": over, "under": under}
+        if line == primary_line:
+            result["result"] = "Over" if over >= under else "Under"
+            result["probability"] = max(over, under)
     return result
 
 

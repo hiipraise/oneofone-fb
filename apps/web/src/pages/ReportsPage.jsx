@@ -130,19 +130,18 @@ function buildGgAccuracy(predictions, results) {
   return finalizeMarketAccuracy(stats);
 }
 
-function getCornerLinePredictions(prediction) {
+function getPredictedCorners(prediction) {
   const corners = prediction?.extended_markets?.corners;
-  if (!corners) return [];
-  return Object.entries(corners)
-    .filter(([key, market]) => key.startsWith("line_") && market && typeof market === "object")
-    .map(([key, market]) => {
-      const line = Number(key.replace("line_", "").replace("_", "."));
-      const over = Number(market.over);
-      const under = Number(market.under);
-      if (!Number.isFinite(line) || !Number.isFinite(over) || !Number.isFinite(under)) return null;
-      return { line, side: over >= under ? "Over" : "Under" };
-    })
-    .filter(Boolean);
+  if (!corners) return null;
+  const line = Number.isFinite(Number(corners.line)) ? Number(corners.line) : 9.5;
+  if (["Over", "Under"].includes(corners.result)) return { side: corners.result, line };
+  const market = corners[`line_${String(line).replace(".", "_")}`] || corners.line_9_5;
+  const over = Number(market?.over);
+  const under = Number(market?.under);
+  if (Number.isFinite(over) && Number.isFinite(under)) return { side: over >= under ? "Over" : "Under", line };
+  const expected = Number(corners.expected_total);
+  if (Number.isFinite(expected)) return { side: expected > line ? "Over" : "Under", line };
+  return null;
 }
 
 function getActualCorners(result, line) {
@@ -160,50 +159,32 @@ function buildCornerAccuracy(predictions, results) {
 
   for (const prediction of predictions) {
     const result = resultByMatchId[prediction?.match_id];
-    const linePredictions = getCornerLinePredictions(prediction);
-    if (!linePredictions.length) continue;
+    const predicted = getPredictedCorners(prediction);
+    if (!predicted) continue;
+    const actual = getActualCorners(result, predicted.line);
+    if (!actual) continue;
 
-    stats.tracked_predictions += 1;
-    stats.tracked_lines += linePredictions.length;
+    const correct = predicted.side === actual;
+    stats.total += 1;
+    stats[`predicted_${predicted.side.toLowerCase()}`] += 1;
+    stats[`actual_${actual.toLowerCase()}`] += 1;
+    stats.by_prediction[predicted.side].total += 1;
 
-    let matchCorrect = 0;
-    let matchTotal = 0;
-
-    for (const predicted of linePredictions) {
-      const actual = getActualCorners(result, predicted.line);
-      if (!actual) continue;
-
-      const correct = predicted.side === actual;
-      stats.total += 1;
-      matchTotal += 1;
-      if (correct) matchCorrect += 1;
-      stats[`predicted_${predicted.side.toLowerCase()}`] += 1;
-      stats[`actual_${actual.toLowerCase()}`] += 1;
-      stats.by_prediction[predicted.side].total += 1;
-
-      if (correct) {
-        stats.correct += 1;
-        stats.by_prediction[predicted.side].correct += 1;
-      } else {
-        stats.miss += 1;
-        stats.by_prediction[predicted.side].miss += 1;
-      }
+    if (correct) {
+      stats.correct += 1;
+      stats.by_prediction[predicted.side].correct += 1;
+    } else {
+      stats.miss += 1;
+      stats.by_prediction[predicted.side].miss += 1;
     }
 
-    if (matchTotal === 0) {
-      stats.pending_matches += 1;
-    }
-
-    if (matchTotal > 0) {
-      const actualTotal = result.actual_corner_total ?? result.corner_total;
-      stats.recent.push({
-        matchId: prediction.match_id,
-        label: `${prediction.home_team || "Home"} vs ${prediction.away_team || "Away"}`,
-        predicted: `${matchCorrect}/${matchTotal} corner lines`,
-        actual: `${actualTotal} corners`,
-        correct: matchCorrect / matchTotal >= 0.5,
-      });
-    }
+    stats.recent.push({
+      matchId: prediction.match_id,
+      label: `${prediction.home_team || "Home"} vs ${prediction.away_team || "Away"}`,
+      predicted: `${predicted.side} ${predicted.line}`,
+      actual: `${actual} ${predicted.line} (${result.actual_corner_total ?? result.corner_total} corners)`,
+      correct,
+    });
   }
 
   return finalizeMarketAccuracy(stats, "Over", "Under");
@@ -262,21 +243,10 @@ function MarketAccuracyDashboard({ marketAccuracy, title, description, sampleLab
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-        {marketAccuracy.total > 0 ? (
-          <>
-            <StatTile label={`${sampleLabel.toUpperCase()} ACCURACY`} value={formatPct(marketAccuracy.accuracy)} tone="text-brand-greenlight" />
-            <StatTile label="CORRECT" value={marketAccuracy.correct} tone="text-brand-greenlight" />
-            <StatTile label="MISSES" value={marketAccuracy.miss} tone="text-brand-redlight" />
-            <StatTile label={`ACTUAL ${positiveLabel.toUpperCase()}`} value={marketAccuracy[`actual_${positiveLabel.toLowerCase()}`] || 0} />
-          </>
-        ) : (
-          <>
-            <StatTile label={`${sampleLabel.toUpperCase()} ACCURACY`} value="Awaiting results" tone="text-yellow-400" />
-            <StatTile label="TRACKED MATCHES" value={marketAccuracy.tracked_predictions || 0} />
-            <StatTile label="TRACKED LINES" value={marketAccuracy.tracked_lines || 0} />
-            <StatTile label="PENDING TOTALS" value={marketAccuracy.pending_matches || 0} />
-          </>
-        )}
+        <StatTile label={`${sampleLabel.toUpperCase()} ACCURACY`} value={formatPct(marketAccuracy.accuracy)} tone="text-brand-greenlight" />
+        <StatTile label="CORRECT" value={marketAccuracy.correct} tone="text-brand-greenlight" />
+        <StatTile label="MISSES" value={marketAccuracy.miss} tone="text-brand-redlight" />
+        <StatTile label={`ACTUAL ${positiveLabel.toUpperCase()}`} value={marketAccuracy[`actual_${positiveLabel.toLowerCase()}`] || 0} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -370,9 +340,6 @@ function buildReport(summary, predictions, results) {
     ? finalizeMarketAccuracy({
         ...emptyMarketAccuracy(summaryCornerAccuracy.label, "Over", "Under"),
         ...summaryCornerAccuracy,
-        tracked_predictions: localCornerAccuracy.tracked_predictions,
-        tracked_lines: localCornerAccuracy.tracked_lines,
-        pending_matches: localCornerAccuracy.pending_matches,
         recent: localCornerAccuracy.recent,
       }, "Over", "Under")
     : localCornerAccuracy;
@@ -646,7 +613,7 @@ export default function ReportsPage() {
           <MarketAccuracyDashboard
             marketAccuracy={report.facts.cornerAccuracy}
             title="CORNERS OVER/UNDER"
-            description="Compares every available corner O/U line against submitted final corner totals."
+            description="Compares the primary corner O/U prediction against submitted final corner totals."
             sampleLabel="Corners"
             positiveLabel="Over"
             negativeLabel="Under"

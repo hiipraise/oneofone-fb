@@ -94,50 +94,48 @@ function BttsAccuracyBadge({ btts, resolvedMatch }) {
   )
 }
 
-function getCornerLinePredictions(corners) {
-  if (!corners) return []
-  return Object.entries(corners)
-    .filter(([key, market]) => key.startsWith('line_') && market && typeof market === 'object')
-    .map(([key, market]) => {
-      const line = Number(key.replace('line_', '').replace('_', '.'))
-      const over = Number(market.over)
-      const under = Number(market.under)
-      if (!Number.isFinite(line) || !Number.isFinite(over) || !Number.isFinite(under)) return null
-      return { line, side: over >= under ? 'Over' : 'Under' }
-    })
-    .filter(Boolean)
+function getPredictedCorners(corners) {
+  if (!corners) return null
+  const line = Number.isFinite(Number(corners.line)) ? Number(corners.line) : 9.5
+  if (['Over', 'Under'].includes(corners.result)) return { side: corners.result, line }
+
+  const market = corners[`line_${String(line).replace('.', '_')}`] || corners.line_9_5
+  const over = Number(market?.over)
+  const under = Number(market?.under)
+  if (Number.isFinite(over) && Number.isFinite(under)) {
+    return { side: over >= under ? 'Over' : 'Under', line }
+  }
+
+  const expected = Number(corners.expected_total)
+  if (Number.isFinite(expected)) return { side: expected > line ? 'Over' : 'Under', line }
+  return null
 }
 
 function CornersBadge({ corners, resolvedMatch }) {
   if (!corners) return null
   const expected = Number(corners.expected_total)
-  const linePredictions = getCornerLinePredictions(corners)
+  const predicted = getPredictedCorners(corners)
   const hasExpected = Number.isFinite(expected)
-  if (!hasExpected && !linePredictions.length) return null
+  if (!hasExpected && !predicted) return null
 
   const actualTotal = Number(resolvedMatch?.actual_corner_total ?? resolvedMatch?.corner_total)
-  const hasActual = Number.isFinite(actualTotal) && linePredictions.length > 0
-  const correctCount = hasActual
-    ? linePredictions.filter((prediction) => {
-        const actualSide = actualTotal > prediction.line ? 'Over' : 'Under'
-        return actualSide === prediction.side
-      }).length
-    : 0
-  const accuracy = hasActual ? correctCount / linePredictions.length : null
+  const hasActual = Number.isFinite(actualTotal) && predicted
+  const actualSide = hasActual ? (actualTotal > predicted.line ? 'Over' : 'Under') : null
+  const correct = hasActual ? actualSide === predicted.side : false
 
   return (
     <div className="flex items-center gap-1.5">
       <span className="font-display text-xs text-gray-600">CORNERS</span>
       <span className="font-display text-xs px-2 py-0.5 rounded-sm border text-gray-300 bg-brand-darkgray border-brand-midgray">
-        {hasExpected ? `Exp ${expected.toFixed(1)}` : `${linePredictions.length} lines`}
+        {predicted ? `${predicted.side} ${predicted.line.toFixed(1)}` : (hasExpected ? `Exp ${expected.toFixed(1)}` : 'Exp —')}
       </span>
       {hasActual && (
         <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
-          accuracy >= 0.5
+          correct
             ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
             : 'text-brand-redlight bg-brand-reddark border-brand-red'
         }`}>
-          {correctCount}/{linePredictions.length} correct · {Math.round(accuracy * 100)}%
+          {correct ? '✔ Correct' : '✖ Miss'}
         </span>
       )}
     </div>

@@ -45,27 +45,35 @@ def _predicted_btts_from_prediction(prediction: dict) -> str | None:
 
 
 
-def _corner_line_predictions_from_prediction(prediction: dict) -> list[dict[str, float | str]]:
+def _predicted_corners_from_prediction(prediction: dict) -> dict | None:
     corners = (prediction.get("extended_markets") or {}).get("corners") or {}
     if not corners:
-        return []
+        return None
 
-    predictions: list[dict[str, float | str]] = []
-    for key, market in corners.items():
-        if not key.startswith("line_") or not isinstance(market, dict):
-            continue
+    line = corners.get("line", 9.5)
+    try:
+        line = float(line)
+    except (TypeError, ValueError):
+        line = 9.5
+
+    result = corners.get("result")
+    if isinstance(result, str) and result.lower() in {"over", "under"}:
+        side = result.title()
+    else:
+        key = f"line_{str(line).replace('.', '_')}"
+        market = corners.get(key) or corners.get("line_9_5") or {}
         try:
-            line = float(key.replace("line_", "").replace("_", "."))
             over = float(market.get("over"))
             under = float(market.get("under"))
+            side = "Over" if over >= under else "Under"
         except (TypeError, ValueError):
-            continue
-        predictions.append({
-            "line": line,
-            "side": "Over" if over >= under else "Under",
-        })
+            expected = corners.get("expected_total")
+            try:
+                side = "Over" if float(expected) > line else "Under"
+            except (TypeError, ValueError):
+                return None
 
-    return predictions
+    return {"side": side, "line": line}
 
 
 def _actual_corners_from_result(result: dict, line: float) -> str | None:
@@ -177,24 +185,23 @@ async def get_metrics_summary():
                     gg_stats["miss"] += 1
                     gg_bucket["miss"] += 1
 
-            corner_predictions = _corner_line_predictions_from_prediction(pred)
-            for corner_prediction in corner_predictions:
-                actual_corners = _actual_corners_from_result(result_doc, float(corner_prediction["line"]))
-                if not actual_corners:
-                    continue
-                corner_side = str(corner_prediction["side"])
-                corner_stats = market_accuracy_by_type["corners"]
-                corner_stats["total"] += 1
-                corner_stats[f"predicted_{corner_side.lower()}"] += 1
-                corner_stats[f"actual_{actual_corners.lower()}"] += 1
-                corner_bucket = corner_stats["by_prediction"][corner_side]
-                corner_bucket["total"] += 1
-                if corner_side == actual_corners:
-                    corner_stats["correct"] += 1
-                    corner_bucket["correct"] += 1
-                else:
-                    corner_stats["miss"] += 1
-                    corner_bucket["miss"] += 1
+            predicted_corners = _predicted_corners_from_prediction(pred)
+            if predicted_corners:
+                actual_corners = _actual_corners_from_result(result_doc, predicted_corners["line"])
+                if actual_corners:
+                    corner_side = predicted_corners["side"]
+                    corner_stats = market_accuracy_by_type["corners"]
+                    corner_stats["total"] += 1
+                    corner_stats[f"predicted_{corner_side.lower()}"] += 1
+                    corner_stats[f"actual_{actual_corners.lower()}"] += 1
+                    corner_bucket = corner_stats["by_prediction"][corner_side]
+                    corner_bucket["total"] += 1
+                    if corner_side == actual_corners:
+                        corner_stats["correct"] += 1
+                        corner_bucket["correct"] += 1
+                    else:
+                        corner_stats["miss"] += 1
+                        corner_bucket["miss"] += 1
 
             if sport in db_sport_counts:
                 db_sport_counts[sport] += 1
