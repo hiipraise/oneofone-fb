@@ -232,15 +232,15 @@ export default function HistoryPage() {
       return
     }
 
-    const hs  = parseInt(homeScore, 10)
-    const as_ = parseInt(awayScore, 10)
-    const corners = cornerTotal === '' ? null : parseInt(cornerTotal, 10)
+    const hs = Number(homeScore)
+    const as_ = Number(awayScore)
+    const corners = cornerTotal === '' ? null : Number(cornerTotal)
 
-    if (isNaN(hs) || isNaN(as_) || hs < 0 || as_ < 0) {
+    if (!Number.isInteger(hs) || !Number.isInteger(as_) || hs < 0 || as_ < 0) {
       setSubmitMsg({ type: 'error', text: 'Scores must be non-negative integers.' })
       return
     }
-    if (cornerTotal !== '' && (isNaN(corners) || corners < 0)) {
+    if (cornerTotal !== '' && (!Number.isInteger(corners) || corners < 0)) {
       setSubmitMsg({ type: 'error', text: 'Corner total must be a non-negative integer when provided.' })
       return
     }
