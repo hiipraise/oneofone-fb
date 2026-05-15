@@ -43,42 +43,44 @@ function getPredictedBtts(prediction) {
   return null;
 }
 
-function emptyMarketAccuracy(label = "GG (Both Teams to Score)") {
+function emptyMarketAccuracy(label = "GG (Both Teams to Score)", positiveLabel = "Yes", negativeLabel = "No") {
   return {
     label,
     total: 0,
     correct: 0,
     miss: 0,
     accuracy: null,
-    predicted_yes: 0,
-    predicted_no: 0,
-    actual_yes: 0,
-    actual_no: 0,
+    [`predicted_${positiveLabel.toLowerCase()}`]: 0,
+    [`predicted_${negativeLabel.toLowerCase()}`]: 0,
+    [`actual_${positiveLabel.toLowerCase()}`]: 0,
+    [`actual_${negativeLabel.toLowerCase()}`]: 0,
     by_prediction: {
-      Yes: { total: 0, correct: 0, miss: 0, accuracy: null },
-      No: { total: 0, correct: 0, miss: 0, accuracy: null },
+      [positiveLabel]: { total: 0, correct: 0, miss: 0, accuracy: null },
+      [negativeLabel]: { total: 0, correct: 0, miss: 0, accuracy: null },
     },
     recent: [],
   };
 }
 
-function finalizeMarketAccuracy(stats) {
-  const base = emptyMarketAccuracy(stats?.label);
+function finalizeMarketAccuracy(stats, positiveLabel = "Yes", negativeLabel = "No") {
+  const labels = Object.keys(stats?.by_prediction || {}).length
+    ? Object.keys(stats.by_prediction)
+    : [positiveLabel, negativeLabel];
+  const base = emptyMarketAccuracy(stats?.label, labels[0], labels[1]);
   const finalized = {
     ...base,
     ...stats,
-    by_prediction: {
-      Yes: { ...base.by_prediction.Yes, ...(stats?.by_prediction?.Yes || {}) },
-      No: { ...base.by_prediction.No, ...(stats?.by_prediction?.No || {}) },
-    },
+    by_prediction: labels.reduce((acc, label) => {
+      acc[label] = { ...(base.by_prediction[label] || {}), ...(stats?.by_prediction?.[label] || {}) };
+      return acc;
+    }, {}),
   };
 
   if (finalized.total > 0) {
     finalized.accuracy = finalized.correct / finalized.total;
   }
 
-  for (const key of ["Yes", "No"]) {
-    const bucket = finalized.by_prediction[key];
+  for (const bucket of Object.values(finalized.by_prediction)) {
     if (bucket.total > 0) bucket.accuracy = bucket.correct / bucket.total;
   }
 
@@ -125,6 +127,66 @@ function buildGgAccuracy(predictions, results) {
   return finalizeMarketAccuracy(stats);
 }
 
+function getPredictedCorners(prediction) {
+  const corners = prediction?.extended_markets?.corners;
+  if (!corners) return null;
+  const line = Number.isFinite(Number(corners.line)) ? Number(corners.line) : 9.5;
+  if (["Over", "Under"].includes(corners.result)) return { side: corners.result, line };
+  const market = corners[`line_${String(line).replace(".", "_")}`] || corners.line_9_5;
+  const over = Number(market?.over);
+  const under = Number(market?.under);
+  if (Number.isFinite(over) && Number.isFinite(under)) return { side: over >= under ? "Over" : "Under", line };
+  const expected = Number(corners.expected_total);
+  if (Number.isFinite(expected)) return { side: expected > line ? "Over" : "Under", line };
+  return null;
+}
+
+function getActualCorners(result, line) {
+  const actual = Number(result?.actual_corner_total ?? result?.corner_total);
+  if (!Number.isFinite(actual)) return null;
+  return actual > line ? "Over" : "Under";
+}
+
+function buildCornerAccuracy(predictions, results) {
+  const resultByMatchId = results.reduce((map, result) => {
+    if (result?.match_id) map[result.match_id] = result;
+    return map;
+  }, {});
+  const stats = emptyMarketAccuracy("Corners O/U", "Over", "Under");
+
+  for (const prediction of predictions) {
+    const result = resultByMatchId[prediction?.match_id];
+    const predicted = getPredictedCorners(prediction);
+    if (!predicted) continue;
+    const actual = getActualCorners(result, predicted.line);
+    if (!actual) continue;
+
+    const correct = predicted.side === actual;
+    stats.total += 1;
+    stats[`predicted_${predicted.side.toLowerCase()}`] += 1;
+    stats[`actual_${actual.toLowerCase()}`] += 1;
+    stats.by_prediction[predicted.side].total += 1;
+
+    if (correct) {
+      stats.correct += 1;
+      stats.by_prediction[predicted.side].correct += 1;
+    } else {
+      stats.miss += 1;
+      stats.by_prediction[predicted.side].miss += 1;
+    }
+
+    stats.recent.push({
+      matchId: prediction.match_id,
+      label: `${prediction.home_team || "Home"} vs ${prediction.away_team || "Away"}`,
+      predicted: `${predicted.side} ${predicted.line}`,
+      actual: `${actual} ${predicted.line} (${result.actual_corner_total ?? result.corner_total} corners)`,
+      correct,
+    });
+  }
+
+  return finalizeMarketAccuracy(stats, "Over", "Under");
+}
+
 function formatPct(value, digits = 1) {
   return value == null ? "N/A" : `${(Number(value) * 100).toFixed(digits)}%`;
 }
@@ -158,49 +220,45 @@ function AccuracyBar({ label, total, correct, accuracy }) {
   );
 }
 
-function GgMarketAccuracyDashboard({ ggAccuracy }) {
-  const yesBucket = ggAccuracy.by_prediction?.Yes || {};
-  const noBucket = ggAccuracy.by_prediction?.No || {};
-  const correctPct = ggAccuracy.total ? (ggAccuracy.correct / ggAccuracy.total) * 100 : 0;
-  const missPct = ggAccuracy.total ? (ggAccuracy.miss / ggAccuracy.total) * 100 : 0;
+function MarketAccuracyDashboard({ marketAccuracy, title, description, sampleLabel, positiveLabel, negativeLabel }) {
+  const positiveBucket = marketAccuracy.by_prediction?.[positiveLabel] || {};
+  const negativeBucket = marketAccuracy.by_prediction?.[negativeLabel] || {};
+  const correctPct = marketAccuracy.total ? (marketAccuracy.correct / marketAccuracy.total) * 100 : 0;
+  const missPct = marketAccuracy.total ? (marketAccuracy.miss / marketAccuracy.total) * 100 : 0;
 
   return (
     <section className="card p-5 mb-4">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-4">
         <div>
           <p className="label mb-2">MARKET ACCURACY BY TYPE</p>
-          <h2 className="font-display text-lg text-white tracking-wide">
-            GG (BOTH TEAMS TO SCORE)
-          </h2>
-          <p className="font-body text-xs text-gray-600 mt-1">
-            Compares GG Yes/No predictions against final scores where both home and away scores are available.
-          </p>
+          <h2 className="font-display text-lg text-white tracking-wide">{title}</h2>
+          <p className="font-body text-xs text-gray-600 mt-1">{description}</p>
         </div>
         <span className="font-display text-xs text-gray-600">
-          Resolved GG samples: {ggAccuracy.total}
+          Resolved {sampleLabel} samples: {marketAccuracy.total}
         </span>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-        <StatTile label="GG ACCURACY" value={formatPct(ggAccuracy.accuracy)} tone="text-brand-greenlight" />
-        <StatTile label="CORRECT" value={ggAccuracy.correct} tone="text-brand-greenlight" />
-        <StatTile label="MISSES" value={ggAccuracy.miss} tone="text-brand-redlight" />
-        <StatTile label="ACTUAL GG YES" value={ggAccuracy.actual_yes} />
+        <StatTile label={`${sampleLabel.toUpperCase()} ACCURACY`} value={formatPct(marketAccuracy.accuracy)} tone="text-brand-greenlight" />
+        <StatTile label="CORRECT" value={marketAccuracy.correct} tone="text-brand-greenlight" />
+        <StatTile label="MISSES" value={marketAccuracy.miss} tone="text-brand-redlight" />
+        <StatTile label={`ACTUAL ${positiveLabel.toUpperCase()}`} value={marketAccuracy[`actual_${positiveLabel.toLowerCase()}`] || 0} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="space-y-4">
           <AccuracyBar
-            label="Predicted GG Yes"
-            total={yesBucket.total || 0}
-            correct={yesBucket.correct || 0}
-            accuracy={yesBucket.accuracy}
+            label={`Predicted ${sampleLabel} ${positiveLabel}`}
+            total={positiveBucket.total || 0}
+            correct={positiveBucket.correct || 0}
+            accuracy={positiveBucket.accuracy}
           />
           <AccuracyBar
-            label="Predicted GG No"
-            total={noBucket.total || 0}
-            correct={noBucket.correct || 0}
-            accuracy={noBucket.accuracy}
+            label={`Predicted ${sampleLabel} ${negativeLabel}`}
+            total={negativeBucket.total || 0}
+            correct={negativeBucket.correct || 0}
+            accuracy={negativeBucket.accuracy}
           />
 
           <div>
@@ -218,10 +276,10 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
         </div>
 
         <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-3">
-          <p className="label mb-2">RECENT GG RESOLUTIONS</p>
+          <p className="label mb-2">RECENT {sampleLabel.toUpperCase()} RESOLUTIONS</p>
           <div className="space-y-2">
-            {ggAccuracy.recent?.length ? (
-              ggAccuracy.recent.map((item) => (
+            {marketAccuracy.recent?.length ? (
+              marketAccuracy.recent.map((item) => (
                 <div key={item.matchId} className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-display text-xs text-white truncate">{item.label}</p>
@@ -240,7 +298,7 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
               ))
             ) : (
               <p className="font-body text-xs text-gray-600">
-                No resolved GG samples yet. Submit final scores to activate this accuracy report.
+                No resolved {sampleLabel} samples yet. Submit final scores and corner totals to activate this accuracy report.
               </p>
             )}
           </div>
@@ -273,6 +331,15 @@ function buildReport(summary, predictions, results) {
         recent: localGgAccuracy.recent,
       })
     : localGgAccuracy;
+  const summaryCornerAccuracy = summary?.market_accuracy_by_type?.corners || null;
+  const localCornerAccuracy = buildCornerAccuracy(predictions, results);
+  const cornerAccuracy = summaryCornerAccuracy
+    ? finalizeMarketAccuracy({
+        ...emptyMarketAccuracy(summaryCornerAccuracy.label, "Over", "Under"),
+        ...summaryCornerAccuracy,
+        recent: localCornerAccuracy.recent,
+      }, "Over", "Under")
+    : localCornerAccuracy;
 
   const highConfidence = predictions.filter(
     (p) => (p?.confidence_score ?? 0) >= 0.75,
@@ -302,6 +369,11 @@ function buildReport(summary, predictions, results) {
   if (ggAccuracy.total > 0 && ggAccuracy.accuracy >= thresholds.accuracy_good) {
     working.push(
       `GG market accuracy is ${formatPct(ggAccuracy.accuracy)}, showing strong Both Teams to Score tracking.`,
+    );
+  }
+  if (cornerAccuracy.total > 0 && cornerAccuracy.accuracy >= thresholds.accuracy_good) {
+    working.push(
+      `Corner market accuracy is ${formatPct(cornerAccuracy.accuracy)}, showing strong corner O/U tracking.`,
     );
   }
 
@@ -335,12 +407,22 @@ function buildReport(summary, predictions, results) {
       `GG market accuracy is ${formatPct(ggAccuracy.accuracy)}, below the target for Both Teams to Score picks.`,
     );
   }
+  if (cornerAccuracy.total === 0) {
+    needsImprovement.push(
+      "Corner accuracy has no resolved samples yet; submit final corner totals to track corner O/U performance.",
+    );
+  } else if (cornerAccuracy.accuracy < thresholds.accuracy_needs) {
+    needsImprovement.push(
+      `Corner market accuracy is ${formatPct(cornerAccuracy.accuracy)}, below the target for corner O/U picks.`,
+    );
+  }
 
   const suggestions = [
     "Automate post-match result ingestion to increase resolved + scored volume.",
     "Prioritize per-sport model retraining when sample counts cross activation thresholds.",
     "Add a weekly calibration review to compare confidence buckets vs actual win rates.",
     "Review GG Yes/No misses separately to improve Both Teams to Score market calibration.",
+    "Review corner Over/Under misses separately to improve corner market calibration.",
   ];
 
   const generatedTasks = [
@@ -369,6 +451,13 @@ function buildReport(summary, predictions, results) {
         ? `GG accuracy is ${formatPct(ggAccuracy.accuracy)} across ${ggAccuracy.total} resolved samples (${ggAccuracy.miss} misses).`
         : "No GG samples are resolved yet; add final scores for BTTS tracking.",
     },
+    {
+      id: "task-corner-market-review",
+      title: "Review corner market misses",
+      detail: cornerAccuracy.total
+        ? `Corner accuracy is ${formatPct(cornerAccuracy.accuracy)} across ${cornerAccuracy.total} resolved samples (${cornerAccuracy.miss} misses).`
+        : "No corner samples are resolved yet; add final corner totals for O/U tracking.",
+    },
   ];
 
   return {
@@ -385,6 +474,7 @@ function buildReport(summary, predictions, results) {
       accuracy,
       brier,
       ggAccuracy,
+      cornerAccuracy,
       resultsCount: results.length,
       predictionsCount: predictions.length,
     },
@@ -509,7 +599,22 @@ export default function ReportsPage() {
             </div>
           </section>
 
-          <GgMarketAccuracyDashboard ggAccuracy={report.facts.ggAccuracy} />
+          <MarketAccuracyDashboard
+            marketAccuracy={report.facts.ggAccuracy}
+            title="GG (BOTH TEAMS TO SCORE)"
+            description="Compares GG Yes/No predictions against final scores where both home and away scores are available."
+            sampleLabel="GG"
+            positiveLabel="Yes"
+            negativeLabel="No"
+          />
+          <MarketAccuracyDashboard
+            marketAccuracy={report.facts.cornerAccuracy}
+            title="CORNERS OVER/UNDER"
+            description="Compares the primary corner O/U prediction against submitted final corner totals."
+            sampleLabel="Corners"
+            positiveLabel="Over"
+            negativeLabel="Under"
+          />
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             <div className="card p-5">

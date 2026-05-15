@@ -69,6 +69,7 @@ class ActualResultInput(BaseModel):
     away_score: int = Field(..., ge=0)
     actual_outcome: str
     match_date: str
+    actual_corner_total: Optional[int] = Field(None, ge=0)
 
 
 class ModelMetrics(BaseModel):
