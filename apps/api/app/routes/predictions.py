@@ -140,7 +140,7 @@ async def submit_result(payload: ActualResultInput):
     try:
         await save_actual_result(
             payload.match_id, payload.home_score, payload.away_score,
-            payload.actual_outcome, payload.match_date,
+            payload.actual_outcome, payload.match_date, payload.actual_corner_total,
         )
         return {"status": "recorded", "match_id": payload.match_id}
     except Exception as e:

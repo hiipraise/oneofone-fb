@@ -44,20 +44,57 @@ def _predicted_btts_from_prediction(prediction: dict) -> str | None:
         return None
 
 
-def _empty_market_accuracy(label: str) -> dict:
+
+def _corner_line_predictions_from_prediction(prediction: dict) -> list[dict[str, float | str]]:
+    corners = (prediction.get("extended_markets") or {}).get("corners") or {}
+    if not corners:
+        return []
+
+    predictions: list[dict[str, float | str]] = []
+    for key, market in corners.items():
+        if not key.startswith("line_") or not isinstance(market, dict):
+            continue
+        try:
+            line = float(key.replace("line_", "").replace("_", "."))
+            over = float(market.get("over"))
+            under = float(market.get("under"))
+        except (TypeError, ValueError):
+            continue
+        predictions.append({
+            "line": line,
+            "side": "Over" if over >= under else "Under",
+        })
+
+    return predictions
+
+
+def _actual_corners_from_result(result: dict, line: float) -> str | None:
+    actual = result.get("actual_corner_total")
+    if actual is None:
+        actual = result.get("corner_total")
+    try:
+        actual_total = float(actual)
+    except (TypeError, ValueError):
+        return None
+    return "Over" if actual_total > line else "Under"
+
+
+def _empty_market_accuracy(label: str, positive_label: str = "Yes", negative_label: str = "No") -> dict:
+    positive_key = positive_label.lower()
+    negative_key = negative_label.lower()
     return {
         "label": label,
         "total": 0,
         "correct": 0,
         "miss": 0,
         "accuracy": None,
-        "predicted_yes": 0,
-        "predicted_no": 0,
-        "actual_yes": 0,
-        "actual_no": 0,
+        f"predicted_{positive_key}": 0,
+        f"predicted_{negative_key}": 0,
+        f"actual_{positive_key}": 0,
+        f"actual_{negative_key}": 0,
         "by_prediction": {
-            "Yes": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
-            "No": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+            positive_label: {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+            negative_label: {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
         },
     }
 
@@ -107,6 +144,7 @@ async def get_metrics_summary():
 
     market_accuracy_by_type = {
         "gg": _empty_market_accuracy("GG (Both Teams to Score)"),
+        "corners": _empty_market_accuracy("Corners O/U", "Over", "Under"),
     }
 
     records_by_sport: dict[str, list[dict[str, object]]] = {s: [] for s in sports}
@@ -138,6 +176,25 @@ async def get_metrics_summary():
                 else:
                     gg_stats["miss"] += 1
                     gg_bucket["miss"] += 1
+
+            corner_predictions = _corner_line_predictions_from_prediction(pred)
+            for corner_prediction in corner_predictions:
+                actual_corners = _actual_corners_from_result(result_doc, float(corner_prediction["line"]))
+                if not actual_corners:
+                    continue
+                corner_side = str(corner_prediction["side"])
+                corner_stats = market_accuracy_by_type["corners"]
+                corner_stats["total"] += 1
+                corner_stats[f"predicted_{corner_side.lower()}"] += 1
+                corner_stats[f"actual_{actual_corners.lower()}"] += 1
+                corner_bucket = corner_stats["by_prediction"][corner_side]
+                corner_bucket["total"] += 1
+                if corner_side == actual_corners:
+                    corner_stats["correct"] += 1
+                    corner_bucket["correct"] += 1
+                else:
+                    corner_stats["miss"] += 1
+                    corner_bucket["miss"] += 1
 
             if sport in db_sport_counts:
                 db_sport_counts[sport] += 1

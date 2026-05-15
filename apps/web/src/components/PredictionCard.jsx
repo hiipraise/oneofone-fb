@@ -94,21 +94,52 @@ function BttsAccuracyBadge({ btts, resolvedMatch }) {
   )
 }
 
-function CornersBadge({ corners }) {
+function getCornerLinePredictions(corners) {
+  if (!corners) return []
+  return Object.entries(corners)
+    .filter(([key, market]) => key.startsWith('line_') && market && typeof market === 'object')
+    .map(([key, market]) => {
+      const line = Number(key.replace('line_', '').replace('_', '.'))
+      const over = Number(market.over)
+      const under = Number(market.under)
+      if (!Number.isFinite(line) || !Number.isFinite(over) || !Number.isFinite(under)) return null
+      return { line, side: over >= under ? 'Over' : 'Under' }
+    })
+    .filter(Boolean)
+}
+
+function CornersBadge({ corners, resolvedMatch }) {
   if (!corners) return null
   const expected = Number(corners.expected_total)
-  const line = Number(corners.line)
+  const linePredictions = getCornerLinePredictions(corners)
   const hasExpected = Number.isFinite(expected)
-  const hasLine = Number.isFinite(line)
-  if (!hasExpected && !hasLine) return null
+  if (!hasExpected && !linePredictions.length) return null
+
+  const actualTotal = Number(resolvedMatch?.actual_corner_total ?? resolvedMatch?.corner_total)
+  const hasActual = Number.isFinite(actualTotal) && linePredictions.length > 0
+  const correctCount = hasActual
+    ? linePredictions.filter((prediction) => {
+        const actualSide = actualTotal > prediction.line ? 'Over' : 'Under'
+        return actualSide === prediction.side
+      }).length
+    : 0
+  const accuracy = hasActual ? correctCount / linePredictions.length : null
 
   return (
     <div className="flex items-center gap-1.5">
       <span className="font-display text-xs text-gray-600">CORNERS</span>
       <span className="font-display text-xs px-2 py-0.5 rounded-sm border text-gray-300 bg-brand-darkgray border-brand-midgray">
-        {hasExpected ? `Exp ${expected.toFixed(1)}` : 'Exp —'}
-        {hasLine ? ` · Line ${line.toFixed(1)}` : ''}
+        {hasExpected ? `Exp ${expected.toFixed(1)}` : `${linePredictions.length} lines`}
       </span>
+      {hasActual && (
+        <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+          accuracy >= 0.5
+            ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
+            : 'text-brand-redlight bg-brand-reddark border-brand-red'
+        }`}>
+          {correctCount}/{linePredictions.length} correct · {Math.round(accuracy * 100)}%
+        </span>
+      )}
     </div>
   )
 }
@@ -263,7 +294,7 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
           </div>
           <BttsBadge btts={bttsData} />
           <BttsAccuracyBadge btts={bttsData} resolvedMatch={resolvedMatch} />
-          <CornersBadge corners={cornersData} />
+          <CornersBadge corners={cornersData} resolvedMatch={resolvedMatch} />
         </div>
         <button
           onClick={() => setExpanded(p => !p)}

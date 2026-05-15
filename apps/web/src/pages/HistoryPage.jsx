@@ -94,7 +94,7 @@ export default function HistoryPage() {
   const [expandedGroupId, setExpandedGroupId] = useState(null)
   const [search, setSearch]     = useState('')
   const [resultForm, setResultForm] = useState({
-    matchId: '', homeScore: '', awayScore: '', date: todayISO(),
+    matchId: '', homeScore: '', awayScore: '', cornerTotal: '', date: todayISO(),
   })
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg]   = useState(null)
@@ -221,7 +221,7 @@ export default function HistoryPage() {
 
   const handleResultSubmit = async (e) => {
     e.preventDefault()
-    const { matchId, homeScore, awayScore, date } = resultForm
+    const { matchId, homeScore, awayScore, cornerTotal, date } = resultForm
 
     if (!matchId.trim()) {
       setSubmitMsg({ type: 'error', text: 'Match ID is required — click a row to copy it.' })
@@ -234,9 +234,14 @@ export default function HistoryPage() {
 
     const hs  = parseInt(homeScore, 10)
     const as_ = parseInt(awayScore, 10)
+    const corners = cornerTotal === '' ? null : parseInt(cornerTotal, 10)
 
     if (isNaN(hs) || isNaN(as_) || hs < 0 || as_ < 0) {
       setSubmitMsg({ type: 'error', text: 'Scores must be non-negative integers.' })
+      return
+    }
+    if (cornerTotal !== '' && (isNaN(corners) || corners < 0)) {
+      setSubmitMsg({ type: 'error', text: 'Corner total must be a non-negative integer when provided.' })
       return
     }
 
@@ -250,9 +255,10 @@ export default function HistoryPage() {
         away_score:     as_,
         actual_outcome: outcome,
         match_date:     date || todayISO(),   // never send empty string
+        ...(corners !== null ? { actual_corner_total: corners } : {}),
       })
-      setSubmitMsg({ type: 'success', text: `Result recorded: ${outcome.replace('_', ' ').toUpperCase()}` })
-      setResultForm({ matchId: '', homeScore: '', awayScore: '', date: todayISO() })
+      setSubmitMsg({ type: 'success', text: `Result recorded: ${outcome.replace('_', ' ').toUpperCase()}${corners !== null ? ` · ${corners} corners` : ''}` })
+      setResultForm({ matchId: '', homeScore: '', awayScore: '', cornerTotal: '', date: todayISO() })
       refetch()
     } catch (err) {
       setSubmitMsg({ type: 'error', text: err.response?.data?.detail || 'Submission failed' })
@@ -510,7 +516,7 @@ export default function HistoryPage() {
         <p className="label mb-4">SUBMIT ACTUAL RESULT — TRIGGERS LEARNING UPDATE</p>
         <form
           onSubmit={handleResultSubmit}
-          className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
+          className="grid grid-cols-1 md:grid-cols-7 gap-3 items-end"
         >
           {/* Match ID — spans 2 cols */}
           <div className="md:col-span-2">
@@ -542,6 +548,19 @@ export default function HistoryPage() {
               value={resultForm.awayScore}
               onChange={e => setResultForm(p => ({ ...p, awayScore: e.target.value }))}
               className="w-full bg-brand-darkgray border border-brand-midgray focus:border-brand-red outline-none text-white font-display text-xs px-3 py-2 rounded-sm"
+            />
+          </div>
+
+
+          {/* Corner total */}
+          <div>
+            <label className="label block mb-1">CORNERS</label>
+            <input
+              type="number" min="0"
+              value={resultForm.cornerTotal}
+              onChange={e => setResultForm(p => ({ ...p, cornerTotal: e.target.value }))}
+              placeholder="Optional"
+              className="w-full bg-brand-darkgray border border-brand-midgray focus:border-brand-red outline-none text-white font-display text-xs px-3 py-2 rounded-sm placeholder-gray-700"
             />
           </div>
 
