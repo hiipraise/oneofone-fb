@@ -59,6 +59,8 @@ export const getQuota = () => api.get("/metrics/quota");
 export const getConfidenceHistory = (days = 30) =>
   api.get("/metrics/confidence-history", { params: { days } });
 export const getPerformanceHistory = (days = 90) => api.get(`/metrics/performance-history?days=${days}`)
+export const getTeamAccuracy = (minResolved = 10, limit = 20, sport = "") =>
+  api.get("/metrics/team-accuracy", { params: { min_resolved: minResolved, limit, sport: sport || undefined } });
 
 // ── Results ──────────────────────────────────────────────────────────────────
 export const getResults = (limit = 50) =>
