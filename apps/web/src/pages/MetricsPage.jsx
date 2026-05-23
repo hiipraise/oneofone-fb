@@ -4,6 +4,7 @@ import {
   useMetricsSummary,
   useMetricsHistory,
   useQuota,
+  useTeamAccuracy,
 } from "../hooks/useData";
 import ModelStatsPanel from "../components/ModelStatsPanel";
 import PaginationControls from "../components/PaginationControls";
@@ -175,6 +176,74 @@ function QuotaPanel({ quota, loading }) {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+
+
+function TeamAccuracyTable({ teams, loading, minResolved, setMinResolved }) {
+  const minOptions = [5, 10, 20, 30, 50];
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-brand-midgray flex items-center justify-between gap-3">
+        <p className="label">TEAM / CLUB ACCURACY (RESOLVED OVER TIME)</p>
+        <div className="flex items-center gap-2">
+          <span className="font-display text-xs text-gray-600">MIN RESOLVED</span>
+          <select
+            value={minResolved}
+            onChange={(e) => setMinResolved(Number(e.target.value))}
+            className="bg-brand-darkgray border border-brand-midgray text-xs text-gray-200 px-2 py-1 rounded-sm"
+          >
+            {minOptions.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-brand-darkgray border-b border-brand-midgray">
+            <tr>
+              {["#", "TEAM", "ACCURACY", "CORRECT", "MISSES", "RESOLVED", "SPORTS", "LAST MATCH"].map((h) => (
+                <th key={h} className="text-left label px-4 py-3">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              [...Array(8)].map((_, i) => (
+                <tr key={i} className="border-b border-brand-midgray/40">
+                  <td colSpan={8} className="px-4 py-3">
+                    <div className="h-3 bg-brand-midgray/50 rounded animate-pulse" />
+                  </td>
+                </tr>
+              ))
+            ) : teams.length ? (
+              teams.map((row, i) => (
+                <tr key={`${row.team}-${i}`} className="border-b border-brand-midgray/40">
+                  <td className="px-4 py-3 font-display text-xs text-gray-500">{i + 1}</td>
+                  <td className="px-4 py-3 font-display text-xs text-white">{row.team}</td>
+                  <td className="px-4 py-3 font-display text-xs text-brand-greenlight">{(row.accuracy * 100).toFixed(1)}%</td>
+                  <td className="px-4 py-3 font-display text-xs text-gray-200 tabular-nums">{row.correct}</td>
+                  <td className="px-4 py-3 font-display text-xs text-brand-redlight tabular-nums">{row.incorrect}</td>
+                  <td className="px-4 py-3 font-display text-xs text-gray-200 tabular-nums">{row.resolved}</td>
+                  <td className="px-4 py-3 font-display text-xs text-gray-500">{(row.sports || []).join(', ') || '—'}</td>
+                  <td className="px-4 py-3 font-display text-xs text-gray-500">{row.last_match_date || '—'}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center font-display text-xs text-gray-600">
+                  No teams qualified for this minimum resolved threshold yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -355,6 +424,8 @@ export default function MetricsPage() {
   const { data: history } = useMetricsHistory(60);
   const { data: quota, loading: quotaLoading } = useQuota();
   const [triggering, setTriggering] = useState(false);
+  const [minTeamResolved, setMinTeamResolved] = useState(10);
+  const { data: teamAccuracy, loading: teamAccuracyLoading } = useTeamAccuracy(minTeamResolved, 20);
   const [trigMsg, setTrigMsg] = useState(null);
   const HISTORY_PAGE_SIZE = 12;
   const [historyPage, setHistoryPage] = useState(1);
@@ -545,6 +616,16 @@ export default function MetricsPage() {
       <section>
         <p className="label mb-3">PER-SPORT STATUS</p>
         <SportModelTable summary={summary} />
+      </section>
+
+      <section>
+        <p className="label mb-3">TEAM ACCURACY LEADERBOARD</p>
+        <TeamAccuracyTable
+          teams={teamAccuracy}
+          loading={teamAccuracyLoading}
+          minResolved={minTeamResolved}
+          setMinResolved={setMinTeamResolved}
+        />
       </section>
 
       {/* Charts */}

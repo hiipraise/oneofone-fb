@@ -250,6 +250,100 @@ async def get_metrics_summary():
     }
 
 
+
+
+def _canonical_team_name(name: str | None) -> str:
+    if not isinstance(name, str):
+        return ""
+    cleaned = " ".join(name.strip().lower().split())
+    return cleaned
+
+
+@router.get("/team-accuracy")
+async def get_team_accuracy(
+    min_resolved: int = Query(10, ge=1, le=500),
+    limit: int = Query(20, ge=1, le=200),
+    sport: str | None = Query(None),
+):
+    db = get_db()
+
+    actual_results: dict[str, dict] = {}
+    async for doc in db.actual_results.find({}):
+        actual_results[doc["match_id"]] = doc
+
+    if not actual_results:
+        return {"teams": [], "meta": {"min_resolved": min_resolved, "limit": limit, "sport": sport}}
+
+    team_stats: dict[str, dict[str, object]] = {}
+
+    pred_query = {"match_id": {"$in": list(actual_results.keys())}, "deleted_at": None}
+    if sport:
+        pred_query["sport"] = sport
+
+    async for pred in db.predictions.find(pred_query):
+        mid = pred.get("match_id")
+        result_doc = actual_results.get(mid) or {}
+        actual_outcome = result_doc.get("actual_outcome")
+        predicted_outcome = pred.get("predicted_outcome")
+        if not actual_outcome or not predicted_outcome:
+            continue
+
+        is_correct = predicted_outcome == actual_outcome
+        for side in ("home_team", "away_team"):
+            team_name_raw = pred.get(side)
+            canonical = _canonical_team_name(team_name_raw)
+            if not canonical:
+                continue
+
+            item = team_stats.setdefault(canonical, {
+                "team": team_name_raw,
+                "resolved": 0,
+                "correct": 0,
+                "incorrect": 0,
+                "sports": set(),
+                "last_match_date": None,
+            })
+            item["resolved"] += 1
+            if is_correct:
+                item["correct"] += 1
+            else:
+                item["incorrect"] += 1
+            if pred.get("sport"):
+                item["sports"].add(pred.get("sport"))
+
+            match_date = pred.get("match_date")
+            if isinstance(match_date, str):
+                prev = item.get("last_match_date")
+                if prev is None or match_date > prev:
+                    item["last_match_date"] = match_date
+
+    rows = []
+    for data in team_stats.values():
+        resolved = int(data["resolved"])
+        if resolved < min_resolved:
+            continue
+        correct = int(data["correct"])
+        rows.append({
+            "team": data["team"],
+            "resolved": resolved,
+            "correct": correct,
+            "incorrect": int(data["incorrect"]),
+            "accuracy": round(correct / resolved, 4),
+            "sports": sorted(list(data["sports"])),
+            "last_match_date": data.get("last_match_date"),
+        })
+
+    rows.sort(key=lambda x: (x["accuracy"], x["resolved"], x["correct"]), reverse=True)
+
+    return {
+        "teams": rows[:limit],
+        "meta": {
+            "min_resolved": min_resolved,
+            "limit": limit,
+            "sport": sport,
+            "total_qualified_teams": len(rows),
+        },
+    }
 @router.get("/performance-history")
 async def get_performance_history(days: int = Query(90, ge=7, le=365)):
     """

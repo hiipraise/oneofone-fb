@@ -7,7 +7,8 @@ import {
   getResults,
   getQuota,
   getConfidenceHistory,
-  getPerformanceHistory,   // ← add this export to your api.js (see below)
+  getPerformanceHistory,
+  getTeamAccuracy,
 } from "../services/api";
 
 export function usePredictions(sport = null, limit = 50, refreshMs = 0) {
@@ -204,4 +205,30 @@ export function useQuota() {
     fetch();
   }, [fetch]);
   return { data, loading, refetch: fetch };
+}
+
+export function useTeamAccuracy(minResolved = 10, limit = 20, sport = "") {
+  const [data, setData] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getTeamAccuracy(minResolved, limit, sport);
+      setData(Array.isArray(res.data?.teams) ? res.data.teams : []);
+      setMeta(res.data?.meta ?? null);
+    } catch {
+      setData([]);
+      setMeta(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [minResolved, limit, sport]);
+
+  useEffect(() => {
+    fetch();
+  }, [fetch]);
+
+  return { data, meta, loading, refetch: fetch };
 }
