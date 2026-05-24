@@ -207,7 +207,7 @@ function TeamAccuracyTable({ teams, loading, minResolved, setMinResolved }) {
         <table className="w-full">
           <thead className="bg-brand-darkgray border-b border-brand-midgray">
             <tr>
-              {["#", "TEAM", "ACCURACY", "CORRECT", "MISSES", "RESOLVED", "SPORTS", "LAST MATCH"].map((h) => (
+              {["#", "TEAM", "ACCURACY", "CORRECT", "MISSES", "RESOLVED", "LAST MATCH"].map((h) => (
                 <th key={h} className="text-left label px-4 py-3">{h}</th>
               ))}
             </tr>
@@ -216,7 +216,7 @@ function TeamAccuracyTable({ teams, loading, minResolved, setMinResolved }) {
             {loading ? (
               [...Array(8)].map((_, i) => (
                 <tr key={i} className="border-b border-brand-midgray/40">
-                  <td colSpan={8} className="px-4 py-3">
+                  <td colSpan={7} className="px-4 py-3">
                     <div className="h-3 bg-brand-midgray/50 rounded animate-pulse" />
                   </td>
                 </tr>
@@ -230,13 +230,12 @@ function TeamAccuracyTable({ teams, loading, minResolved, setMinResolved }) {
                   <td className="px-4 py-3 font-display text-xs text-gray-200 tabular-nums">{row.correct}</td>
                   <td className="px-4 py-3 font-display text-xs text-brand-redlight tabular-nums">{row.incorrect}</td>
                   <td className="px-4 py-3 font-display text-xs text-gray-200 tabular-nums">{row.resolved}</td>
-                  <td className="px-4 py-3 font-display text-xs text-gray-500">{(row.sports || []).join(', ') || '—'}</td>
                   <td className="px-4 py-3 font-display text-xs text-gray-500">{row.last_match_date || '—'}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center font-display text-xs text-gray-600">
+                <td colSpan={7} className="px-4 py-6 text-center font-display text-xs text-gray-600">
                   No teams qualified for this minimum resolved threshold yet.
                 </td>
               </tr>
@@ -425,7 +424,7 @@ export default function MetricsPage() {
   const { data: quota, loading: quotaLoading } = useQuota();
   const [triggering, setTriggering] = useState(false);
   const [minTeamResolved, setMinTeamResolved] = useState(10);
-  const { data: teamAccuracy, loading: teamAccuracyLoading } = useTeamAccuracy(minTeamResolved, 20);
+  const { data: teamAccuracy, loading: teamAccuracyLoading } = useTeamAccuracy(minTeamResolved, 20, "soccer");
   const [trigMsg, setTrigMsg] = useState(null);
   const HISTORY_PAGE_SIZE = 12;
   const [historyPage, setHistoryPage] = useState(1);
