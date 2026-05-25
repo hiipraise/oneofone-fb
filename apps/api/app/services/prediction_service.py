@@ -452,6 +452,7 @@ async def restore_prediction(match_id: str) -> bool:
 async def save_actual_result(
     match_id: str, home_score: int, away_score: int,
     actual_outcome: str, match_date: str,
+    corner_stats: Optional[Dict[str, Any]] = None,
 ):
     """
     Persist the actual match result, then kick off learning in a fully
@@ -496,6 +497,13 @@ async def save_actual_result(
         "match_date":     match_date,
         "recorded_at":    now_wat().isoformat(),
     }
+    if corner_stats:
+        doc.update({
+            "home_corners": corner_stats.get("home_corners"),
+            "away_corners": corner_stats.get("away_corners"),
+            "total_corners": corner_stats.get("total_corners"),
+            "corner_source": corner_stats.get("source"),
+        })
     if prediction:
         doc.update({
             "home_team": prediction.get("home_team"),

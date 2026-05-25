@@ -69,6 +69,9 @@ class ActualResultInput(BaseModel):
     away_score: int = Field(..., ge=0)
     actual_outcome: str
     match_date: str
+    home_corners: Optional[int] = Field(None, ge=0)
+    away_corners: Optional[int] = Field(None, ge=0)
+    total_corners: Optional[int] = Field(None, ge=0)
 
 
 class ModelMetrics(BaseModel):

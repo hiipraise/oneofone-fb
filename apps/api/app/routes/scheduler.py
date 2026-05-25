@@ -224,6 +224,40 @@ async def get_today_fixtures(
     groups_doc = await db.prediction_groups.find_one({"match_date": target_date}, {"_id": 0})
     groups = (groups_doc or {}).get("groups", [])
 
+    if not groups:
+        fallback_groups: dict[str, dict] = {}
+        for pred in prediction_docs:
+            group_id = pred.get("prediction_group_id")
+            if not group_id:
+                continue
+
+            existing = fallback_groups.get(group_id) or {
+                "group_id": group_id,
+                "group_index": pred.get("prediction_group_index"),
+                "is_high_risk_group": bool(pred.get("prediction_group_is_high_risk")),
+                "games": [],
+            }
+            if existing.get("group_index") is None and pred.get("prediction_group_index") is not None:
+                existing["group_index"] = pred.get("prediction_group_index")
+            existing["is_high_risk_group"] = existing["is_high_risk_group"] or bool(pred.get("prediction_group_is_high_risk"))
+            existing["games"].append({
+                "match_id": pred.get("match_id"),
+                "sport": pred.get("sport"),
+                "home_team": pred.get("home_team"),
+                "away_team": pred.get("away_team"),
+                "risk_score": round(max(0.0, 1.0 - float(pred.get("confidence_score") or 0.0)), 6),
+            })
+            fallback_groups[group_id] = existing
+
+        groups = sorted(
+            fallback_groups.values(),
+            key=lambda group: (
+                group.get("group_index") is None,
+                group.get("group_index") or 0,
+                str(group.get("group_id") or ""),
+            ),
+        )
+
     enriched_groups = []
     for group in groups:
         group_games = group.get("games") or []
@@ -283,6 +317,18 @@ async def get_today_fixtures(
         filtered_result = {normalized_sport: result.get(normalized_sport, [])}
     else:
         filtered_result = result
+
+    for sport_key, sport_rows in filtered_result.items():
+        filtered_result[sport_key] = sorted(
+            sport_rows,
+            key=lambda row: (
+                row.get("overall_rank") is None,
+                row.get("overall_rank") or 0,
+                -(row.get("play_rank") or 0),
+                -(float(row.get("confidence_score") or 0.0)),
+                str(row.get("match_id") or ""),
+            ),
+        )
 
     return {
         "date": target_date,

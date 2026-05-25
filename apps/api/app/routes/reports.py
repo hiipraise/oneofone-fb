@@ -1,6 +1,8 @@
 # app/routes/reports.py
 import logging
 from datetime import datetime
+import os
+from pathlib import Path
 
 from fastapi import APIRouter, Query
 
@@ -118,3 +120,43 @@ async def get_platform_report(limit: int = Query(100, ge=20, le=500)):
             'predictionsCount': len(predictions),
         },
     }
+
+
+@router.get('/platform-analysis')
+async def get_platform_analysis():
+    """
+    Serves the platform analysis report from PLATFORM_ANALYSIS_REPORT.md.
+    Auto-updates by reading the latest file content.
+    """
+    try:
+        # Navigate from this file up to the repository root (5 levels from routes.py)
+        # reports.py is at apps/api/app/routes/reports.py so parents[4] -> repo root
+        app_root = Path(__file__).resolve().parents[4]
+        analysis_file = app_root / 'PLATFORM_ANALYSIS_REPORT.md'
+        
+        if not analysis_file.exists():
+            return {
+                'content': '',
+                'exists': False,
+                'message': 'Platform analysis report not found',
+                'lastUpdated': None,
+            }
+        
+        content = analysis_file.read_text(encoding='utf-8')
+        stat = analysis_file.stat()
+        last_updated = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        
+        return {
+            'content': content,
+            'exists': True,
+            'lastUpdated': last_updated,
+            'message': 'Platform analysis report loaded successfully',
+        }
+    except Exception as e:
+        logger.error(f'Error reading platform analysis: {str(e)}')
+        return {
+            'content': '',
+            'exists': False,
+            'message': f'Error reading platform analysis: {str(e)}',
+            'lastUpdated': None,
+        }

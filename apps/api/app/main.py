@@ -19,6 +19,7 @@ from app.ml.prediction_engine import get_current_model_version
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 from app.routes import predictions, metrics, results, search, chat, scheduler as scheduler_routes, meta, reports
+from app.routes import admin as admin_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +91,7 @@ app.include_router(chat.router,        prefix="/api/chat",        tags=["chat"])
 app.include_router(scheduler_routes.router,   prefix="/api/scheduler",   tags=["scheduler"])
 app.include_router(meta.router,        prefix="/api/meta",        tags=["meta"])
 app.include_router(reports.router,     prefix="/api/reports",     tags=["reports"])
+app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
 
 
 

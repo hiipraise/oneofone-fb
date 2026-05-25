@@ -1,180 +1,267 @@
 // src/components/PredictionCard.jsx
-import React, { useState } from 'react'
-import { formatWatDate } from '../utils/wat'
+import React, { useState } from "react";
+import { formatWatDate } from "../utils/wat";
 
 // ─── Probability bar ─────────────────────────────────────────────────────────
 function ProbBar({ label, value, isWinner }) {
-  const pct = Math.round((value ?? 0) * 100)
-  const barColor = isWinner ? 'bg-brand-green' : 'bg-brand-midgray'
-  const textColor = isWinner ? 'text-brand-greenlight' : 'text-gray-400'
+  const pct = Math.round((value ?? 0) * 100);
+  const barColor = isWinner ? "bg-brand-green" : "bg-brand-midgray";
+  const textColor = isWinner ? "text-brand-greenlight" : "text-gray-400";
 
   return (
     <div className="flex items-center gap-3">
-      <span className="font-display text-xs text-gray-500 w-24 shrink-0 truncate">{label}</span>
+      <span className="font-display text-xs text-gray-500 w-24 shrink-0 truncate">
+        {label}
+      </span>
       <div className="flex-1 h-1.5 bg-brand-darkgray rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-700 ${barColor}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className={`font-display text-xs w-10 text-right tabular-nums ${textColor}`}>
+      <span
+        className={`font-display text-xs w-10 text-right tabular-nums ${textColor}`}
+      >
         {pct}%
       </span>
     </div>
-  )
+  );
 }
 
 // ─── Confidence badge ────────────────────────────────────────────────────────
 function ConfidenceBadge({ value }) {
-  const pct = Math.round((value ?? 0) * 100)
+  const pct = Math.round((value ?? 0) * 100);
   const color =
-    pct >= 60 ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
-    : pct >= 35 ? 'text-yellow-400 bg-yellow-900/30 border-yellow-700'
-    :             'text-brand-redlight bg-brand-reddark border-brand-red'
+    pct >= 60
+      ? "text-brand-greenlight bg-brand-greendark border-brand-green"
+      : pct >= 35
+        ? "text-yellow-400 bg-yellow-900/30 border-yellow-700"
+        : "text-brand-redlight bg-brand-reddark border-brand-red";
   return (
-    <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${color}`}>
+    <span
+      className={`font-display text-xs px-2 py-0.5 rounded-sm border ${color}`}
+    >
       {pct}% confidence
     </span>
-  )
+  );
 }
 
 // ─── BTTS badge ──────────────────────────────────────────────────────────────
 function BttsBadge({ btts }) {
-  if (!btts) return null
-  const isYes = btts.result === 'Yes'
+  if (!btts) return null;
+  const isYes = btts.result === "Yes";
   return (
     <div className="flex items-center gap-1.5">
       <span className="font-display text-xs text-gray-600">GG</span>
-      <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
-        isYes
-          ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
-          : 'text-brand-redlight bg-brand-reddark border-brand-red'
-      }`}>
+      <span
+        className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+          isYes
+            ? "text-brand-greenlight bg-brand-greendark border-brand-green"
+            : "text-brand-redlight bg-brand-reddark border-brand-red"
+        }`}
+      >
         {isYes ? `Yes ${btts.yes_pct}%` : `No ${btts.no_pct}%`}
       </span>
     </div>
-  )
+  );
 }
 
 function CornersBadge({ corners }) {
-  if (!corners) return null
-  const expected = Number(corners.expected_total)
-  const line = Number(corners.line)
-  const hasExpected = Number.isFinite(expected)
-  const hasLine = Number.isFinite(line)
-  if (!hasExpected && !hasLine) return null
+  if (!corners) return null;
+  const expected = Number(corners.expected_total);
+  const line = Number(corners.line);
+  const hasExpected = Number.isFinite(expected);
+  const hasLine = Number.isFinite(line);
+  if (!hasExpected && !hasLine) return null;
 
   return (
     <div className="flex items-center gap-1.5">
       <span className="font-display text-xs text-gray-600">CORNERS</span>
       <span className="font-display text-xs px-2 py-0.5 rounded-sm border text-gray-300 bg-brand-darkgray border-brand-midgray">
-        {hasExpected ? `Exp ${expected.toFixed(1)}` : 'Exp —'}
-        {hasLine ? ` · Line ${line.toFixed(1)}` : ''}
+        {hasExpected ? `Exp ${expected.toFixed(1)}` : "Exp —"}
+        {hasLine ? ` · Line ${line.toFixed(1)}` : ""}
       </span>
     </div>
-  )
+  );
+}
+
+function CornerResolutionBadge({ corners, resolvedMatch }) {
+  if (!corners || !resolvedMatch) return null;
+
+  const actualCorners =
+    Number(resolvedMatch.total_corners) ||
+    (Number.isFinite(Number(resolvedMatch.home_corners)) &&
+    Number.isFinite(Number(resolvedMatch.away_corners))
+      ? Number(resolvedMatch.home_corners) + Number(resolvedMatch.away_corners)
+      : null);
+
+  if (!Number.isFinite(actualCorners)) return null;
+
+  let bestLine = null;
+  let bestSide = null;
+  let bestConfidence = -1;
+
+  Object.entries(corners).forEach(([lineKey, lineData]) => {
+    if (!lineKey.startsWith("line_")) return;
+    const lineValue = Number(lineKey.replace("line_", "").replace("_", "."));
+    if (!Number.isFinite(lineValue)) return;
+    const overProb = Number(lineData?.over ?? 0.5);
+    const underProb = Number(lineData?.under ?? 0.5);
+    const side = overProb >= underProb ? "over" : "under";
+    const confidence = Math.max(overProb, underProb);
+    if (confidence > bestConfidence) {
+      bestConfidence = confidence;
+      bestLine = lineValue;
+      bestSide = side;
+    }
+  });
+
+  if (bestLine == null || !bestSide) return null;
+
+  const actualSide = actualCorners > bestLine ? "over" : "under";
+  const correct = actualSide === bestSide;
+
+  return (
+    <span
+      className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+        correct
+          ? "text-brand-greenlight bg-brand-greendark border-brand-green"
+          : "text-brand-redlight bg-brand-reddark border-brand-red"
+      }`}
+    >
+      {correct ? "✔ Corners Correct" : "✖ Corners Miss"}
+    </span>
+  );
 }
 
 // ─── Main card ───────────────────────────────────────────────────────────────
 
 function ResolutionBadge({ prediction, resolvedMatch }) {
-  if (!prediction?.match_id) return null
+  if (!prediction?.match_id) return null;
 
   if (!resolvedMatch?.actual_outcome) {
     return (
       <span className="font-display text-xs px-2 py-0.5 rounded-sm border border-brand-midgray text-gray-500">
         ➖ Pending
       </span>
-    )
+    );
   }
 
-  const correct = resolvedMatch.actual_outcome === prediction.predicted_outcome
+  const correct = resolvedMatch.actual_outcome === prediction.predicted_outcome;
 
   return (
-    <span className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
-      correct
-        ? 'text-brand-greenlight bg-brand-greendark border-brand-green'
-        : 'text-brand-redlight bg-brand-reddark border-brand-red'
-    }`}>
-      {correct ? '✔️ Correct' : '❌ Miss'}
+    <span
+      className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
+        correct
+          ? "text-brand-greenlight bg-brand-greendark border-brand-green"
+          : "text-brand-redlight bg-brand-reddark border-brand-red"
+      }`}
+    >
+      {correct ? "✔️ Correct" : "❌ Miss"}
     </span>
-  )
+  );
 }
 
-export default function PredictionCard({ prediction, resolvedMatch, engineStatusBySport = null }) {
-  const [expanded, setExpanded] = useState(false)
+export default function PredictionCard({
+  prediction,
+  resolvedMatch,
+  engineStatusBySport = null,
+  onResolveRequest = null,
+  resolvingMatchId = null,
+}) {
+  const [expanded, setExpanded] = useState(false);
 
-  if (!prediction) return null
+  if (!prediction) return null;
 
   const {
     match_id,
-    home_team, away_team, sport, league, match_date,
-    home_win_probability, away_win_probability, draw_probability,
-    predicted_outcome, confidence_score,
-    confidence_interval_low, confidence_interval_high,
-    model_version, timestamp, data_sources,
+    home_team,
+    away_team,
+    sport,
+    league,
+    match_date,
+    home_win_probability,
+    away_win_probability,
+    draw_probability,
+    predicted_outcome,
+    confidence_score,
+    confidence_interval_low,
+    confidence_interval_high,
+    model_version,
+    timestamp,
+    data_sources,
     extended_markets,
     is_trained_model,
-  } = prediction
+  } = prediction;
 
-  const normalizedSport = (sport || '').toLowerCase()
+  const normalizedSport = (sport || "").toLowerCase();
   const engineStatusForSport =
     engineStatusBySport && normalizedSport
       ? engineStatusBySport[normalizedSport]
-      : null
+      : null;
   const isEngineActive =
-    typeof engineStatusForSport === 'boolean'
+    typeof engineStatusForSport === "boolean"
       ? engineStatusForSport
-      : (is_trained_model !== false)
+      : is_trained_model !== false;
 
-  const bttsData = extended_markets?.btts ?? null
-  const normalizedDataSources = (data_sources || []).filter(Boolean).map((src) => {
-    if (typeof src === 'string') {
-      return { title: src, link: src, source: null }
-    }
-    return {
-      title: src.title || src.link || src.source || 'Source',
-      link: src.link || '',
-      source: src.source || null,
-    }
-  })
+  const bttsData = extended_markets?.btts ?? null;
+  const normalizedDataSources = (data_sources || [])
+    .filter(Boolean)
+    .map((src) => {
+      if (typeof src === "string") {
+        return { title: src, link: src, source: null };
+      }
+      return {
+        title: src.title || src.link || src.source || "Source",
+        link: src.link || "",
+        source: src.source || null,
+      };
+    });
 
   // Which bar is the predicted winner?
-  const winnerIs = predicted_outcome   // "home_win" | "away_win" | "draw"
+  const winnerIs = predicted_outcome; // "home_win" | "away_win" | "draw"
 
   // Outcome label (short)
   const outcomeLabel =
-    predicted_outcome === 'home_win' ? `${home_team} to Win`
-    : predicted_outcome === 'away_win' ? `${away_team} to Win`
-    : 'Draw'
+    predicted_outcome === "home_win"
+      ? `${home_team} to Win`
+      : predicted_outcome === "away_win"
+        ? `${away_team} to Win`
+        : "Draw";
 
   const outcomeColor =
-    predicted_outcome === 'home_win' ? 'text-brand-greenlight'
-    : predicted_outcome === 'away_win' ? 'text-brand-redlight'
-    : 'text-yellow-400'
+    predicted_outcome === "home_win"
+      ? "text-brand-greenlight"
+      : predicted_outcome === "away_win"
+        ? "text-brand-redlight"
+        : "text-yellow-400";
 
-  const cornersData = extended_markets?.corners ?? null
+  const cornersData = extended_markets?.corners ?? null;
 
-  const ciLow  = Math.round((confidence_interval_low  ?? 0) * 100)
-  const ciHigh = Math.round((confidence_interval_high ?? 0) * 100)
+  const ciLow = Math.round((confidence_interval_low ?? 0) * 100);
+  const ciHigh = Math.round((confidence_interval_high ?? 0) * 100);
 
   const dateLabel =
-    match_date
-    || (timestamp && formatWatDate(timestamp))
-    || '—'
+    match_date || (timestamp && formatWatDate(timestamp)) || "—";
 
   return (
     <div className="card p-4 animate-slide-up hover:border-gray-600 transition-colors duration-200">
-
       {/* Header */}
       <div className="flex items-start justify-between mb-3 gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap mb-1">
             {sport && <span className="tag-gray">{sport.toUpperCase()}</span>}
-            {league && <span className="tag-gray truncate max-w-[120px]">{league}</span>}
-            <ResolutionBadge prediction={prediction} resolvedMatch={resolvedMatch} />
-            <span className={`tag-gray ${isEngineActive ? 'text-brand-greenlight' : 'text-yellow-600'}`}>
-              {isEngineActive ? 'ML ACTIVE' : 'PRIOR MODE'}
+            {league && (
+              <span className="tag-gray truncate max-w-[120px]">{league}</span>
+            )}
+            <ResolutionBadge
+              prediction={prediction}
+              resolvedMatch={resolvedMatch}
+            />
+            <span
+              className={`tag-gray ${isEngineActive ? "text-brand-greenlight" : "text-yellow-600"}`}
+            >
+              {isEngineActive ? "ML ACTIVE" : "PRIOR MODE"}
             </span>
           </div>
           <p className="font-display text-sm text-white leading-snug">
@@ -182,11 +269,15 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <span className="text-gray-600 mx-1.5 text-xs">vs</span>
             {away_team}
           </p>
-          <p className="font-display text-xs text-gray-600 mt-0.5">{dateLabel}</p>
+          <p className="font-display text-xs text-gray-600 mt-0.5">
+            {dateLabel}
+          </p>
         </div>
 
         <div className="text-right shrink-0">
-          <p className={`font-display text-sm font-medium ${outcomeColor}`}>{outcomeLabel}</p>
+          <p className={`font-display text-sm font-medium ${outcomeColor}`}>
+            {outcomeLabel}
+          </p>
           <ConfidenceBadge value={confidence_score} />
         </div>
       </div>
@@ -196,17 +287,17 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
         <ProbBar
           label={home_team}
           value={home_win_probability}
-          isWinner={winnerIs === 'home_win'}
+          isWinner={winnerIs === "home_win"}
         />
         <ProbBar
           label="Draw"
           value={draw_probability}
-          isWinner={winnerIs === 'draw'}
+          isWinner={winnerIs === "draw"}
         />
         <ProbBar
           label={away_team}
           value={away_win_probability}
-          isWinner={winnerIs === 'away_win'}
+          isWinner={winnerIs === "away_win"}
         />
       </div>
 
@@ -221,28 +312,50 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
           </div>
           <div>
             <span className="label">MODEL</span>
-            <p className="font-display text-xs text-gray-500 mt-0.5">v{model_version}</p>
+            <p className="font-display text-xs text-gray-500 mt-0.5">
+              v{model_version}
+            </p>
           </div>
           <BttsBadge btts={bttsData} />
           <CornersBadge corners={cornersData} />
+          <CornerResolutionBadge
+            corners={cornersData}
+            resolvedMatch={resolvedMatch}
+          />
         </div>
-        <button
-          onClick={() => setExpanded(p => !p)}
-          className="font-display text-xs text-gray-600 hover:text-white transition-colors shrink-0"
-        >
-          {expanded ? 'LESS ↑' : 'MORE ↓'}
-        </button>
+        <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onResolveRequest?.(prediction);
+            }}
+            disabled={resolvingMatchId === prediction.match_id}
+            className="font-display text-xs px-2 py-0.5 rounded-sm border border-brand-green text-brand-greenlight hover:bg-brand-greendark transition-colors shrink-0 disabled:opacity-50"
+            title="Trigger result resolution for this prediction"
+          >
+            {resolvingMatchId === prediction.match_id
+              ? "RESOLVING..."
+              : "RESOLVE"}
+          </button>
+          <button
+            onClick={() => setExpanded((p) => !p)}
+            className="font-display text-xs text-gray-600 hover:text-white transition-colors shrink-0"
+          >
+            {expanded ? "LESS ↑" : "MORE ↓"}
+          </button>
+        </div>
       </div>
 
       {/* Expanded detail */}
       {expanded && (
         <div className="mt-3 pt-3 border-t border-brand-midgray animate-fade-in space-y-3">
-
           {/* Match ID */}
           {match_id && (
             <div>
               <p className="label mb-1">MATCH ID</p>
-              <p className="font-display text-xs text-gray-600 break-all">{match_id}</p>
+              <p className="font-display text-xs text-gray-600 break-all">
+                {match_id}
+              </p>
             </div>
           )}
 
@@ -250,13 +363,16 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <div>
               <p className="label mb-1">RESOLUTION</p>
               <p className="font-display text-xs text-gray-400">
-                Actual outcome: {resolvedMatch.actual_outcome.replace('_', ' ').toUpperCase()}
+                Actual outcome:{" "}
+                {resolvedMatch.actual_outcome.replace("_", " ").toUpperCase()}
               </p>
-              {(resolvedMatch.home_score != null && resolvedMatch.away_score != null) && (
-                <p className="font-display text-xs text-gray-600 mt-1">
-                  Final score: {resolvedMatch.home_score} - {resolvedMatch.away_score}
-                </p>
-              )}
+              {resolvedMatch.home_score != null &&
+                resolvedMatch.away_score != null && (
+                  <p className="font-display text-xs text-gray-600 mt-1">
+                    Final score: {resolvedMatch.home_score} -{" "}
+                    {resolvedMatch.away_score}
+                  </p>
+                )}
             </div>
           )}
 
@@ -265,22 +381,29 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <div>
               <p className="label mb-2">GOALS O/U</p>
               <div className="grid grid-cols-3 gap-1.5">
-                {['1_5', '2_5', '3_5'].map(key => {
-                  const market = extended_markets.goals_over_under[`over_${key}`]
-                  if (!market) return null
-                  const label = key.replace('_', '.')
+                {["1_5", "2_5", "3_5"].map((key) => {
+                  const market =
+                    extended_markets.goals_over_under[`over_${key}`];
+                  if (!market) return null;
+                  const label = key.replace("_", ".");
                   return (
-                    <div key={key} className="bg-brand-darkgray border border-brand-midgray p-2 rounded-sm text-center">
-                      <p className="font-display text-xs text-gray-600">O{label}</p>
+                    <div
+                      key={key}
+                      className="bg-brand-darkgray border border-brand-midgray p-2 rounded-sm text-center"
+                    >
+                      <p className="font-display text-xs text-gray-600">
+                        O{label}
+                      </p>
                       <p className="font-display text-xs text-white mt-0.5">
                         {Math.round(market.over * 100)}%
                       </p>
                     </div>
-                  )
+                  );
                 })}
               </div>
               <p className="font-display text-xs text-gray-600 mt-1.5">
-                xG: {extended_markets.goals_over_under.home_xg} – {extended_markets.goals_over_under.away_xg}
+                xG: {extended_markets.goals_over_under.home_xg} –{" "}
+                {extended_markets.goals_over_under.away_xg}
                 &nbsp;(total {extended_markets.goals_over_under.expected_goals})
               </p>
             </div>
@@ -291,9 +414,14 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
             <div>
               <p className="label mb-2">TOP CORRECT SCORES</p>
               <div className="flex flex-wrap gap-1.5">
-                {extended_markets.correct_score.slice(0, 5).map(cs => (
-                  <div key={cs.score} className="bg-brand-darkgray border border-brand-midgray px-2 py-1 rounded-sm">
-                    <span className="font-display text-xs text-white">{cs.score}</span>
+                {extended_markets.correct_score.slice(0, 5).map((cs) => (
+                  <div
+                    key={cs.score}
+                    className="bg-brand-darkgray border border-brand-midgray px-2 py-1 rounded-sm"
+                  >
+                    <span className="font-display text-xs text-white">
+                      {cs.score}
+                    </span>
                     <span className="font-display text-xs text-gray-600 ml-1.5">
                       {Math.round(cs.probability * 100)}%
                     </span>
@@ -309,13 +437,18 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
               <p className="label mb-1">DATA SOURCES</p>
               <div className="flex flex-wrap gap-2">
                 {normalizedDataSources.map((src, i) => {
-                  const hasLink = Boolean(src.link)
+                  const hasLink = Boolean(src.link);
                   const safeLink = hasLink
-                    ? (src.link.startsWith('http') ? src.link : `https://${src.link}`)
-                    : null
+                    ? src.link.startsWith("http")
+                      ? src.link
+                      : `https://${src.link}`
+                    : null;
 
                   return (
-                    <div key={`${src.title}-${i}`} className="inline-flex items-center gap-1">
+                    <div
+                      key={`${src.title}-${i}`}
+                      className="inline-flex items-center gap-1"
+                    >
                       {hasLink ? (
                         <a
                           href={safeLink}
@@ -335,7 +468,7 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
                         </span>
                       )}
                     </div>
-                  )
+                  );
                 })}
               </div>
             </div>
@@ -343,5 +476,5 @@ export default function PredictionCard({ prediction, resolvedMatch, engineStatus
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -10,6 +10,8 @@ import PaginationControls from "../components/PaginationControls";
 import { triggerLearning } from "../services/api";
 import ConfidenceHistoryChart from "../charts/ConfidenceHistoryChart";
 import SportPerformanceChart from "../charts/SportPerformanceChart";
+import MarketAccuracyChart from "../charts/MarketAccuracyChart";
+import ConfidenceThresholdChart from "../charts/ConfidenceThresholdChart";
 import { formatWatDate } from "../utils/wat";
 import {
   getMlWeightBarColor,
@@ -670,6 +672,28 @@ export default function MetricsPage() {
             itemLabel="METRIC SNAPSHOTS"
           />
         </div>
+      </section>
+
+      {/* Market Performance Section */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="label">MARKET PERFORMANCE</p>
+          <p className="font-display text-xs text-gray-600">
+            Accuracy by prediction type
+          </p>
+        </div>
+        <MarketAccuracyChart days={90} />
+      </section>
+
+      {/* Confidence Analysis Section */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="label">CONFIDENCE THRESHOLD ANALYSIS</p>
+          <p className="font-display text-xs text-gray-600">
+            Find the optimal confidence level
+          </p>
+        </div>
+        <ConfidenceThresholdChart days={90} />
       </section>
     </div>
   );

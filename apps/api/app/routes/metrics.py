@@ -299,6 +299,222 @@ async def get_serper_quota():
     return await get_persisted_quota()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Market-Specific Accuracy Metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/market-accuracy")
+async def get_market_accuracy(days: int = Query(90, ge=7, le=365)):
+    """
+    Returns prediction accuracy breakdown by market type:
+      - GG (Both Teams To Score)
+      - Corners
+      - Over/Under Goals
+    
+    Analyzes resolved predictions within the specified day range.
+    """
+    from app.services.market_accuracy_service import market_accuracy_analyzer
+    
+    db = get_db()
+    cutoff = (datetime.now(WAT) - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    # Fetch recent actual results (bounded by cutoff) to avoid scanning entire collection
+    actual_results_raw: dict[str, dict] = {}
+    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}}):
+        actual_results_raw[doc["match_id"]] = {
+            "actual_outcome": doc.get("actual_outcome"),
+            "home_score": doc.get("home_score"),
+            "away_score": doc.get("away_score"),
+            "match_date": doc.get("match_date"),
+        }
+    
+    if not actual_results_raw:
+        return {
+            "market_accuracy": {},
+            "timestamp": datetime.now(WAT).isoformat(),
+            "error": "No resolved predictions available"
+        }
+    
+    async def _load_predictions(filter_by_date: bool) -> list[dict]:
+        query = {
+            "match_id": {"$in": list(actual_results_raw.keys())},
+            "deleted_at": None,
+            "sport": METRIC_SPORT,
+        }
+        if filter_by_date:
+            query["match_date"] = {"$gte": cutoff}
+
+        rows: list[dict] = []
+        async for pred in db.predictions.find(query):
+            rows.append(pred)
+        return rows
+
+    # Prefer the recent window, but fall back to all resolved predictions if needed.
+    predictions = await _load_predictions(True)
+    if not predictions:
+        predictions = await _load_predictions(False)
+    
+    if not predictions:
+        return {
+            "market_accuracy": {},
+            "timestamp": datetime.now(WAT).isoformat(),
+            "error": "No predictions found in date range or historical fallback"
+        }
+    
+    try:
+        market_accuracy = market_accuracy_analyzer.analyze_market_accuracy(
+            predictions,
+            actual_results_raw
+        )
+        market_type_counts = market_accuracy_analyzer.get_market_type_counts(predictions)
+        
+        return {
+            "market_accuracy": market_accuracy,
+            "market_type_counts": market_type_counts,
+            "total_predictions_analyzed": len(predictions),
+            "total_resolved": len(actual_results_raw),
+            "date_range_days": days,
+        }
+    except Exception as e:
+        logger.error(f"Market accuracy analysis failed: {e}")
+        return {
+            "market_accuracy": {},
+            "timestamp": datetime.now(WAT).isoformat(),
+            "error": str(e)
+        }
+
+
+@router.get("/confidence-thresholds")
+async def get_confidence_thresholds(days: int = Query(90, ge=7, le=365)):
+    """
+    Analyze prediction accuracy at different confidence thresholds.
+    
+    Shows which confidence levels produce the most reliable predictions,
+    including:
+      - Count of predictions at each threshold
+      - Accuracy percentage at each threshold
+      - Optimal threshold recommendation
+    """
+    from app.services.market_accuracy_service import market_accuracy_analyzer
+    
+    db = get_db()
+    cutoff = (datetime.now(WAT) - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    # Fetch recent actual results (bounded by cutoff) including corner stats
+    actual_results_raw: dict[str, dict] = {}
+    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}}):
+        actual_results_raw[doc["match_id"]] = {
+            "actual_outcome": doc.get("actual_outcome"),
+            "home_score": doc.get("home_score"),
+            "away_score": doc.get("away_score"),
+            "home_corners": doc.get("home_corners"),
+            "away_corners": doc.get("away_corners"),
+            "total_corners": doc.get("total_corners"),
+        }
+    
+    if not actual_results_raw:
+        return {
+            "threshold_analysis": {},
+            "optimal_threshold": None,
+            "error": "No resolved predictions available"
+        }
+    
+    async def _load_predictions(filter_by_date: bool) -> list[dict]:
+        query = {
+            "match_id": {"$in": list(actual_results_raw.keys())},
+            "deleted_at": None,
+            "sport": METRIC_SPORT,
+        }
+        if filter_by_date:
+            query["match_date"] = {"$gte": cutoff}
+
+        rows: list[dict] = []
+        async for pred in db.predictions.find(query):
+            rows.append(pred)
+        return rows
+
+    predictions = await _load_predictions(True)
+    if not predictions:
+        predictions = await _load_predictions(False)
+    
+    if not predictions:
+        return {
+            "threshold_analysis": {},
+            "optimal_threshold": None,
+            "error": "No predictions found in date range or historical fallback"
+        }
+    
+    try:
+        analysis = market_accuracy_analyzer.analyze_confidence_thresholds(
+            predictions,
+            actual_results_raw
+        )
+        confidence_dist = market_accuracy_analyzer.get_confidence_distribution(predictions)
+        
+        return {
+            "threshold_breakdown": analysis["threshold_breakdown"],
+            "optimal_threshold": analysis["optimal_threshold"],
+            "confidence_distribution": confidence_dist,
+            "total_predictions": len(predictions),
+            "resolved_predictions": len([p for p in predictions if p.get("match_id") in actual_results_raw]),
+            "date_range_days": days,
+            "timestamp": analysis["timestamp"],
+        }
+    except Exception as e:
+        logger.error(f"Confidence threshold analysis failed: {e}")
+        return {
+            "threshold_breakdown": {},
+            "optimal_threshold": None,
+            "error": str(e)
+        }
+
+
+@router.get("/confidence-distribution")
+async def get_confidence_distribution(days: int = Query(30, ge=7, le=180)):
+    """
+    Return the distribution of confidence scores in recent predictions.
+    
+    Shows histograms of how confidence scores are distributed across
+    predictions (e.g., how many predictions at 50-60% confidence, etc.)
+    """
+    from app.services.market_accuracy_service import market_accuracy_analyzer
+    
+    db = get_db()
+    cutoff = (datetime.now(WAT) - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    predictions = []
+    async for pred in db.predictions.find(
+        {
+            "deleted_at": None,
+            "match_date": {"$gte": cutoff},
+            "confidence_score": {"$exists": True, "$ne": None},
+            "sport": METRIC_SPORT,
+        }
+    ):
+        predictions.append(pred)
+    
+    if not predictions:
+        return {
+            "distribution": {},
+            "timestamp": datetime.now(WAT).isoformat(),
+        }
+    
+    try:
+        dist = market_accuracy_analyzer.get_confidence_distribution(predictions)
+        return {
+            "distribution": dist,
+            "total_predictions": len(predictions),
+            "date_range_days": days,
+            "timestamp": datetime.now(WAT).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Confidence distribution failed: {e}")
+        return {
+            "distribution": {},
+            "error": str(e)
+        }
+
+
 @router.post("/quota/increment")
 async def increment_quota(calls: int = 1):
     from app.services.web_search_service import get_serper_usage

@@ -49,6 +49,8 @@ export const restorePrediction = (matchId) =>
   api.post(`/predictions/${matchId}/restore`);
 export const repredictPrediction = (matchId) =>
   api.post(`/predictions/${matchId}/repredict`);
+export const resolvePrediction = (matchId) =>
+  api.post(`/predictions/${matchId}/resolve`);
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
 export const getMetrics = (limit = 30) =>
@@ -58,7 +60,8 @@ export const getMetricsSummary = () => api.get("/metrics/summary");
 export const getQuota = () => api.get("/metrics/quota");
 export const getConfidenceHistory = (days = 30) =>
   api.get("/metrics/confidence-history", { params: { days } });
-export const getPerformanceHistory = (days = 90) => api.get(`/metrics/performance-history?days=${days}`)
+export const getPerformanceHistory = (days = 90) =>
+  api.get(`/metrics/performance-history?days=${days}`);
 
 // ── Results ──────────────────────────────────────────────────────────────────
 export const getResults = (limit = 50) =>

@@ -9,6 +9,7 @@ from app.services.prediction_service import (
     save_actual_result, trigger_learning_update, soft_delete_prediction, restore_prediction,
     repredict_prediction,
 )
+from app.services.result_resolver import resolve_prediction_by_match_id
 from app.services.match_validation_service import (
     fetch_available_leagues,
     is_fixture_completed,
@@ -141,6 +142,12 @@ async def submit_result(payload: ActualResultInput):
         await save_actual_result(
             payload.match_id, payload.home_score, payload.away_score,
             payload.actual_outcome, payload.match_date,
+            corner_stats={
+                "home_corners": payload.home_corners,
+                "away_corners": payload.away_corners,
+                "total_corners": payload.total_corners,
+                "source": "manual",
+            } if payload.total_corners is not None else None,
         )
         return {"status": "recorded", "match_id": payload.match_id}
     except Exception as e:
@@ -153,4 +160,28 @@ async def trigger_learning():
         await trigger_learning_update()
         return {"status": "learning_triggered"}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{match_id}/resolve")
+async def resolve_prediction(match_id: str):
+    try:
+        result = await resolve_prediction_by_match_id(match_id)
+        if not result.get("resolved"):
+            reason = result.get("reason", "resolution_failed")
+            if reason == "prediction_not_found":
+                raise HTTPException(status_code=404, detail="Prediction not found")
+            if reason == "already_resolved":
+                return {"status": "already_resolved", "match_id": match_id}
+            if reason == "game_not_found":
+                raise HTTPException(status_code=404, detail="Completed game not found yet")
+            if reason == "unsupported_sport":
+                raise HTTPException(status_code=400, detail="Unsupported sport for resolution")
+            raise HTTPException(status_code=400, detail="Could not resolve match")
+
+        return {"status": "resolved", **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Resolve prediction error for %s: %s", match_id, e)
         raise HTTPException(status_code=500, detail=str(e))

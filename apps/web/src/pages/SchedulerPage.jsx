@@ -46,9 +46,14 @@ function outcomeTag(outcome) {
 function groupTag(row, groupStatusById) {
   const idx = row?.prediction_group_index;
   const groupId = row?.prediction_group_id;
-  if (!idx || !groupId) return <span className="tag-gray text-xs">UNGROUPED</span>;
+  if (!idx || !groupId)
+    return <span className="tag-gray text-xs">UNGROUPED</span>;
 
   const status = groupStatusById[groupId];
+  if (!status) {
+    return <span className="tag-gray text-xs">G{idx} · GROUP</span>;
+  }
+
   if (status === "won") {
     return (
       <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-brand-greenlight bg-brand-greendark border-brand-green">
@@ -76,6 +81,49 @@ function groupTag(row, groupStatusById) {
       G{idx} · GROUP CORRECT
     </span>
   );
+}
+
+function buildPredictionGroups(fixtures) {
+  const apiGroups = fixtures?.groups ?? [];
+  if (apiGroups.length) return apiGroups;
+
+  const rows = Object.values(fixtures?.by_sport || {}).flat();
+  const groups = new Map();
+
+  for (const row of rows) {
+    const groupId = row?.prediction_group_id;
+    if (!groupId) continue;
+
+    const existing = groups.get(groupId) || {
+      group_id: groupId,
+      group_index: row?.prediction_group_index ?? null,
+      is_high_risk_group: !!row?.prediction_group_is_high_risk,
+      group_status: null,
+      games: [],
+    };
+
+    if (existing.group_index == null && row?.prediction_group_index != null) {
+      existing.group_index = row.prediction_group_index;
+    }
+    existing.is_high_risk_group =
+      existing.is_high_risk_group || !!row?.prediction_group_is_high_risk;
+    existing.games.push({
+      match_id: row.match_id,
+      sport: row.sport,
+      home_team: row.home_team,
+      away_team: row.away_team,
+      league: row.league,
+      predicted_outcome: row.predicted_outcome,
+    });
+    groups.set(groupId, existing);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const aIdx = a.group_index ?? Number.POSITIVE_INFINITY;
+    const bIdx = b.group_index ?? Number.POSITIVE_INFINITY;
+    if (aIdx !== bIdx) return aIdx - bIdx;
+    return String(a.group_id || "").localeCompare(String(b.group_id || ""));
+  });
 }
 
 // ── Status card ───────────────────────────────────────────────────────────────
@@ -152,16 +200,33 @@ function StatusCard({ status, loading }) {
 // ── Today fixture table ───────────────────────────────────────────────────────
 function TodayTable({ fixtures, sport, loading }) {
   const rows = fixtures?.by_sport?.[sport] ?? [];
+  const groups = useMemo(() => buildPredictionGroups(fixtures), [fixtures]);
   const groupStatusById = useMemo(() => {
     const map = {};
-    for (const group of fixtures?.groups || []) {
+    for (const group of groups) {
       if (!group?.group_id) continue;
       map[group.group_id] =
-        group.group_status ||
-        (group.is_high_risk_group ? "miss" : "correct");
+        group.group_status || (group.is_high_risk_group ? "miss" : "correct");
     }
     return map;
-  }, [fixtures]);
+  }, [groups]);
+  const orderedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const aRank = a.overall_rank ?? Number.POSITIVE_INFINITY;
+      const bRank = b.overall_rank ?? Number.POSITIVE_INFINITY;
+      if (aRank !== bRank) return aRank - bRank;
+
+      const aPlay = a.play_rank ?? 0;
+      const bPlay = b.play_rank ?? 0;
+      if (aPlay !== bPlay) return bPlay - aPlay;
+
+      const aConf = a.confidence_score ?? 0;
+      const bConf = b.confidence_score ?? 0;
+      if (aConf !== bConf) return bConf - aConf;
+
+      return String(a.match_id || "").localeCompare(String(b.match_id || ""));
+    });
+  }, [rows]);
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
 
@@ -169,9 +234,9 @@ function TodayTable({ fixtures, sport, loading }) {
     setPage(1);
   }, [sport, rows.length]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(orderedRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const paginatedRows = rows.slice(
+  const paginatedRows = orderedRows.slice(
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
   );
@@ -298,7 +363,7 @@ function TodayTable({ fixtures, sport, loading }) {
       </div>
       <PaginationControls
         currentPage={safePage}
-        totalItems={rows.length}
+        totalItems={orderedRows.length}
         pageSize={PAGE_SIZE}
         onPageChange={setPage}
         itemLabel="FIXTURES TODAY"
@@ -308,7 +373,7 @@ function TodayTable({ fixtures, sport, loading }) {
 }
 
 function PredictionGroupsPanel({ fixtures, loading }) {
-  const groups = fixtures?.groups ?? [];
+  const groups = useMemo(() => buildPredictionGroups(fixtures), [fixtures]);
 
   if (loading) {
     return (
@@ -327,7 +392,9 @@ function PredictionGroupsPanel({ fixtures, loading }) {
   if (!groups.length) {
     return (
       <div className="card p-4">
-        <p className="font-display text-xs text-gray-600">NO GROUPED SLATE AVAILABLE YET.</p>
+        <p className="font-display text-xs text-gray-600">
+          NO GROUPED SLATE AVAILABLE YET.
+        </p>
       </div>
     );
   }
@@ -368,12 +435,21 @@ function PredictionGroupsPanel({ fixtures, loading }) {
                   GROUP LOST
                 </span>
               )}
+              {!group.group_status && (
+                <span className="font-display text-[10px] px-2 py-0.5 rounded-sm border text-gray-400 border-brand-midgray bg-brand-darkgray">
+                  GROUP
+                </span>
+              )}
             </div>
           </div>
           <div className="space-y-1">
             {(group.games || []).map((g) => (
-              <p key={g.match_id} className="font-display text-xs text-gray-300">
-                {g.home_team} <span className="text-gray-600">vs</span> {g.away_team}
+              <p
+                key={g.match_id}
+                className="font-display text-xs text-gray-300"
+              >
+                {g.home_team} <span className="text-gray-600">vs</span>{" "}
+                {g.away_team}
               </p>
             ))}
           </div>
@@ -518,7 +594,9 @@ export default function SchedulerPage() {
 
   const loadLogs = useCallback(async () => {
     try {
-      const res = await api.get("/scheduler/logs", { params: { limit: 30, sport } });
+      const res = await api.get("/scheduler/logs", {
+        params: { limit: 30, sport },
+      });
       setLogs(Array.isArray(res.data) ? res.data : []);
     } catch {
       setLogs([]);
@@ -588,6 +666,11 @@ export default function SchedulerPage() {
   };
 
   const bySport = status?.today_predictions?.by_sport ?? {};
+  const todayPredictionCount = status?.today_predictions?.total ?? 0;
+  const resolvedTodayCount = status?.resolved_today ?? 0;
+  const pendingLogsCount = logs.filter(
+    (log) => log.level === "ERROR" || log.level === "WARNING",
+  ).length;
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -679,9 +762,14 @@ export default function SchedulerPage() {
       )}
 
       {/* Status cards */}
-      {/* Status cards — now 5 cards */}
-      <section>
-        <p className="label mb-3">SCHEDULER STATUS</p>
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="label">SCHEDULER STATUS</p>
+          <span className="font-display text-xs text-gray-700 tabular-nums">
+            {todayPredictionCount} predictions · {resolvedTodayCount} resolved ·{" "}
+            {pendingLogsCount} alerts
+          </span>
+        </div>
         {statusLoading ? (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {[...Array(5)].map((_, i) => (
@@ -749,160 +837,170 @@ export default function SchedulerPage() {
         )}
       </section>
 
-      {/* Per-sport breakdown */}
-      {!statusLoading && (
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          {SPORTS.map((s) => (
-            <div
-              key={s}
-              onClick={() => setSport(s)}
-              className={`card p-4 cursor-pointer transition-all duration-150 ${
-                sport === s
-                  ? "border-brand-red bg-brand-reddark"
-                  : "hover:border-gray-500"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`w-2 h-2 rounded-full ${SPORT_DOTS[s]}`} />
-                <p className="label">{s.toUpperCase()}</p>
-              </div>
-              <p
-                className={`font-display text-3xl tabular-nums ${sport === s ? "text-white" : "text-gray-400"}`}
-              >
-                {bySport[s] ?? 0}
-              </p>
-              <p className="font-display text-xs text-gray-600 mt-0.5">
-                {SPORT_LABEL[s]}
-              </p>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Today's fixtures table */}
-      <section>
-        <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="label">
-              PREDICTIONS — {SPORT_LABEL[sport]?.toUpperCase()}
-            </p>
-            <p className="font-display text-xs text-gray-600 mt-1">
-              Viewing {fixtures?.date || selectedDate} (group history is preserved by date)
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-brand-darkgray border border-brand-midgray focus:border-brand-red outline-none text-white font-display text-xs px-3 py-1.5 rounded-sm"
-            />
-            <div className="flex flex-wrap gap-1">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-8 space-y-6">
+          {/* Per-sport breakdown */}
+          {!statusLoading && (
+            <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
               {SPORTS.map((s) => (
-                <button
+                <div
                   key={s}
                   onClick={() => setSport(s)}
-                  className={`font-display text-xs px-3 py-1 rounded-sm border transition-colors ${
+                  className={`card p-4 cursor-pointer transition-all duration-150 ${
                     sport === s
-                      ? "bg-brand-red border-brand-red text-white"
-                      : "border-brand-midgray text-gray-500 hover:text-white"
+                      ? "border-brand-red bg-brand-reddark"
+                      : "hover:border-gray-500"
                   }`}
                 >
-                  {s.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <TodayTable
-          fixtures={fixtures}
-          sport={sport}
-          loading={fixturesLoading}
-        />
-      </section>
-
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <p className="label">PREDICTION GROUPS (ALL SPORTS)</p>
-          <span className="font-display text-xs text-gray-700">
-            {(fixtures?.groups || []).length} groups
-          </span>
-        </div>
-        <PredictionGroupsPanel fixtures={fixtures} loading={fixturesLoading} />
-      </section>
-
-      {/* Config info */}
-      <section className="card p-5">
-        <p className="label mb-4">CONFIGURATION</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <p className="label">SCHEDULE</p>
-            <p className="font-display text-xs text-gray-300">
-              Predictions — daily at configured WAT hour
-            </p>
-            <p className="font-display text-xs text-gray-600">
-              Set via DAILY_PREDICTION_HOUR in .env
-            </p>
-            <p className="font-display text-xs text-gray-300 mt-2">
-              Resolution — daily at 00:00 WAT
-            </p>
-            <p className="font-display text-xs text-gray-600">
-              Set via RESULT_RESOLUTION_HOUR in .env
-            </p>
-          </div>
-          <div className="space-y-2">
-            <p className="label">SPORTS</p>
-            <div className="flex flex-col gap-1">
-              {SPORTS.map((s) => (
-                <div key={s} className="flex items-center gap-2">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${SPORT_DOTS[s]}`}
-                  />
-                  <span className="font-display text-xs text-gray-400">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`w-2 h-2 rounded-full ${SPORT_DOTS[s]}`} />
+                    <p className="label">{s.toUpperCase()}</p>
+                  </div>
+                  <p
+                    className={`font-display text-3xl tabular-nums ${sport === s ? "text-white" : "text-gray-400"}`}
+                  >
+                    {bySport[s] ?? 0}
+                  </p>
+                  <p className="font-display text-xs text-gray-600 mt-0.5">
                     {SPORT_LABEL[s]}
-                  </span>
+                  </p>
                 </div>
               ))}
+            </section>
+          )}
+
+          {/* Today's fixtures table */}
+          <section>
+            <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="label">
+                  PREDICTIONS — {SPORT_LABEL[sport]?.toUpperCase()}
+                </p>
+                <p className="font-display text-xs text-gray-600 mt-1">
+                  Viewing {fixtures?.date || selectedDate} (group history is
+                  preserved by date)
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-brand-darkgray border border-brand-midgray focus:border-brand-red outline-none text-white font-display text-xs px-3 py-1.5 rounded-sm"
+                />
+                <div className="flex flex-wrap gap-1">
+                  {SPORTS.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSport(s)}
+                      className={`font-display text-xs px-3 py-1 rounded-sm border transition-colors ${
+                        sport === s
+                          ? "bg-brand-red border-brand-red text-white"
+                          : "border-brand-midgray text-gray-500 hover:text-white"
+                      }`}
+                    >
+                      {s.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            <p className="label">DATA SOURCES</p>
-            <p className="font-display text-xs text-gray-400">
-              The Odds API — fixture discovery
-            </p>
-            <p className="font-display text-xs text-gray-400">
-              ESPN API — team stats (free)
-            </p>
-            <p className="font-display text-xs text-gray-400">
-              Serper.dev — search (2,400/mo)
-            </p>
-            <p className="font-display text-xs text-gray-400">
-              RapidAPI — structured stats
-            </p>
-          </div>
-        </div>
-      </section>
+            <TodayTable
+              fixtures={fixtures}
+              sport={sport}
+              loading={fixturesLoading}
+            />
+          </section>
 
-      {/* Scheduler logs */}
-      <section>
-        <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
-          <p className="label">SCHEDULER LOGS</p>
-          <span className="font-display text-xs text-gray-700">
-            {logs.length} entries
-          </span>
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <p className="label">PREDICTION GROUPS (ALL SPORTS)</p>
+              <span className="font-display text-xs text-gray-700">
+                {buildPredictionGroups(fixtures).length} groups
+              </span>
+            </div>
+            <PredictionGroupsPanel
+              fixtures={fixtures}
+              loading={fixturesLoading}
+            />
+          </section>
         </div>
-        <SchedulerLogs logs={logs} loading={logsLoading} />
-      </section>
 
-      {/* Quick links */}
-      <section className="flex gap-3">
-        <Link to="/history" className="btn-ghost text-xs">
-          VIEW ALL PREDICTIONS →
-        </Link>
-        <Link to="/metrics" className="btn-ghost text-xs">
-          MODEL METRICS →
-        </Link>
-      </section>
+        <div className="xl:col-span-4 space-y-6">
+          {/* Config info */}
+          <section className="card p-5">
+            <p className="label mb-4">CONFIGURATION</p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="label">SCHEDULE</p>
+                <p className="font-display text-xs text-gray-300">
+                  Predictions — daily at configured WAT hour
+                </p>
+                <p className="font-display text-xs text-gray-600">
+                  Set via DAILY_PREDICTION_HOUR in .env
+                </p>
+                <p className="font-display text-xs text-gray-300 mt-2">
+                  Resolution — daily at 00:00 WAT
+                </p>
+                <p className="font-display text-xs text-gray-600">
+                  Set via RESULT_RESOLUTION_HOUR in .env
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="label">SPORTS</p>
+                <div className="flex flex-col gap-1">
+                  {SPORTS.map((s) => (
+                    <div key={s} className="flex items-center gap-2">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${SPORT_DOTS[s]}`}
+                      />
+                      <span className="font-display text-xs text-gray-400">
+                        {SPORT_LABEL[s]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="label">DATA SOURCES</p>
+                <p className="font-display text-xs text-gray-400">
+                  The Odds API — fixture discovery
+                </p>
+                <p className="font-display text-xs text-gray-400">
+                  ESPN API — team stats (free)
+                </p>
+                <p className="font-display text-xs text-gray-400">
+                  Serper.dev — search (2,400/mo)
+                </p>
+                <p className="font-display text-xs text-gray-400">
+                  RapidAPI — structured stats
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Scheduler logs */}
+          <section>
+            <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-center lg:justify-between">
+              <p className="label">SCHEDULER LOGS</p>
+              <span className="font-display text-xs text-gray-700">
+                {logs.length} entries
+              </span>
+            </div>
+            <SchedulerLogs logs={logs} loading={logsLoading} />
+          </section>
+
+          {/* Quick links */}
+          <section className="flex flex-col gap-3">
+            <Link to="/history" className="btn-ghost text-xs">
+              VIEW ALL PREDICTIONS →
+            </Link>
+            <Link to="/metrics" className="btn-ghost text-xs">
+              MODEL METRICS →
+            </Link>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
