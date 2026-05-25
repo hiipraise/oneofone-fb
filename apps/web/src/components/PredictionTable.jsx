@@ -269,7 +269,7 @@ export default function PredictionTable({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <span
-                          className="font-display text-xs text-gray-600 font-mono tracking-tight"
+                          className="text-xs text-gray-600 font-mono tracking-tight"
                           title={pred.match_id}
                         >
                           {shortId}
