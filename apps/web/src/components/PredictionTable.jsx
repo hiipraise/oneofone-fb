@@ -3,6 +3,17 @@ import React, { useState } from "react";
 import { deletePrediction, repredictPrediction } from "../services/api";
 import { formatWatDate } from "../utils/wat";
 
+function predictionDateValue(pred) {
+  const rawDate = pred?.match_date || pred?.timestamp || "";
+  const time = rawDate ? Date.parse(rawDate) : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortValue(pred, key) {
+  if (key === "prediction_date") return predictionDateValue(pred);
+  return pred?.[key] ?? "";
+}
+
 function outcomeTag(outcome) {
   if (outcome === "home_win")
     return <span className="tag-green">HOME WIN</span>;
@@ -143,7 +154,7 @@ export default function PredictionTable({
   onResolveRequest = null,
   resolvingMatchId = null,
 }) {
-  const [sortKey, setSortKey] = useState("timestamp");
+  const [sortKey, setSortKey] = useState("prediction_date");
   const [sortDir, setSortDir] = useState("desc");
   const [localPreds, setLocalPreds] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
@@ -160,8 +171,8 @@ export default function PredictionTable({
   };
 
   const sorted = [...items].sort((a, b) => {
-    const av = a[sortKey] ?? "",
-      bv = b[sortKey] ?? "";
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
     return sortDir === "asc" ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
   });
 
@@ -222,7 +233,7 @@ export default function PredictionTable({
               <Col label="AWAY%" k="away_win_probability" />
               <Col label="CONF" k="confidence_score" />
               <Col label="STATUS" k={null} />
-              <Col label="DATE" k="timestamp" />
+              <Col label="DATE" k="prediction_date" />
               <Col label="" k={null} className="w-16" />
             </tr>
           </thead>

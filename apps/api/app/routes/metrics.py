@@ -13,6 +13,66 @@ router = APIRouter()
 METRIC_SPORT = "soccer"
 
 
+def _actual_btts_from_result(result: dict) -> str | None:
+    home_score = result.get("home_score")
+    away_score = result.get("away_score")
+    try:
+        if home_score is None or away_score is None:
+            return None
+        return "Yes" if int(home_score) > 0 and int(away_score) > 0 else "No"
+    except (TypeError, ValueError):
+        return None
+
+
+def _predicted_btts_from_prediction(prediction: dict) -> str | None:
+    btts = (prediction.get("extended_markets") or {}).get("btts") or {}
+    result = btts.get("result")
+    if isinstance(result, str) and result.lower() in {"yes", "no"}:
+        return result.title()
+
+    yes = btts.get("yes")
+    no = btts.get("no")
+    try:
+        if yes is None and no is None:
+            return None
+        if yes is None:
+            return "No" if float(no) >= 0.5 else "Yes"
+        if no is None:
+            return "Yes" if float(yes) >= 0.5 else "No"
+        return "Yes" if float(yes) >= float(no) else "No"
+    except (TypeError, ValueError):
+        return None
+
+
+def _empty_market_accuracy(label: str) -> dict:
+    return {
+        "label": label,
+        "total": 0,
+        "correct": 0,
+        "miss": 0,
+        "accuracy": None,
+        "predicted_yes": 0,
+        "predicted_no": 0,
+        "actual_yes": 0,
+        "actual_no": 0,
+        "by_prediction": {
+            "Yes": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+            "No": {"total": 0, "correct": 0, "miss": 0, "accuracy": None},
+        },
+    }
+
+
+def _finalize_market_accuracy(stats: dict) -> dict:
+    if stats["total"]:
+        stats["accuracy"] = round(stats["correct"] / stats["total"], 4)
+
+    for bucket in stats["by_prediction"].values():
+        if bucket["total"]:
+            bucket["accuracy"] = round(bucket["correct"] / bucket["total"], 4)
+
+    return stats
+
+
 @router.get("/")
 async def get_metrics(limit: int = Query(30, ge=1, le=200)):
     db = get_db()
@@ -39,11 +99,15 @@ async def get_metrics_summary():
 
     sports = ["soccer"]  # Soccer-only platform
 
-    actual_results: dict[str, str] = {}
+    actual_results: dict[str, dict] = {}
     total_resolved_raw = 0
     async for doc in db.actual_results.find({}):
         total_resolved_raw += 1
-        actual_results[doc["match_id"]] = doc.get("actual_outcome")
+        actual_results[doc["match_id"]] = doc
+
+    market_accuracy_by_type = {
+        "gg": _empty_market_accuracy("GG (Both Teams to Score)"),
+    }
 
     records_by_sport: dict[str, list[dict[str, object]]] = {s: [] for s in sports}
     db_sport_counts: dict[str, int] = {s: 0 for s in sports}
@@ -56,7 +120,25 @@ async def get_metrics_summary():
         ):
             mid = pred.get("match_id")
             sport = pred.get("sport", "soccer")
-            actual_outcome = actual_results.get(mid)
+            result_doc = actual_results.get(mid) or {}
+            actual_outcome = result_doc.get("actual_outcome")
+
+            predicted_btts = _predicted_btts_from_prediction(pred)
+            actual_btts = _actual_btts_from_result(result_doc)
+            if predicted_btts and actual_btts:
+                gg_stats = market_accuracy_by_type["gg"]
+                gg_stats["total"] += 1
+                gg_stats[f"predicted_{predicted_btts.lower()}"] += 1
+                gg_stats[f"actual_{actual_btts.lower()}"] += 1
+                gg_bucket = gg_stats["by_prediction"][predicted_btts]
+                gg_bucket["total"] += 1
+                if predicted_btts == actual_btts:
+                    gg_stats["correct"] += 1
+                    gg_bucket["correct"] += 1
+                else:
+                    gg_stats["miss"] += 1
+                    gg_bucket["miss"] += 1
+
             if sport in db_sport_counts:
                 db_sport_counts[sport] += 1
                 sport_accuracy[sport]["count"] += 1
@@ -153,6 +235,10 @@ async def get_metrics_summary():
         "ml_weights": ml_weights,
         "ml_activation_threshold": settings.MIN_TRAINING_SAMPLES,
         "supported_sports": sports,
+        "market_accuracy_by_type": {
+            key: _finalize_market_accuracy(value)
+            for key, value in market_accuracy_by_type.items()
+        },
         "report_thresholds": {
             "accuracy_good": settings.REPORT_ACCURACY_GOOD,
             "accuracy_needs": settings.REPORT_ACCURACY_NEEDS,
@@ -164,6 +250,100 @@ async def get_metrics_summary():
     }
 
 
+
+
+def _canonical_team_name(name: str | None) -> str:
+    if not isinstance(name, str):
+        return ""
+    cleaned = " ".join(name.strip().lower().split())
+    return cleaned
+
+
+@router.get("/team-accuracy")
+async def get_team_accuracy(
+    min_resolved: int = Query(10, ge=1, le=500),
+    limit: int = Query(20, ge=1, le=200),
+    sport: str | None = Query(None),
+):
+    db = get_db()
+
+    actual_results: dict[str, dict] = {}
+    async for doc in db.actual_results.find({}):
+        actual_results[doc["match_id"]] = doc
+
+    if not actual_results:
+        return {"teams": [], "meta": {"min_resolved": min_resolved, "limit": limit, "sport": sport}}
+
+    team_stats: dict[str, dict[str, object]] = {}
+
+    pred_query = {"match_id": {"$in": list(actual_results.keys())}, "deleted_at": None}
+    if sport:
+        pred_query["sport"] = sport
+
+    async for pred in db.predictions.find(pred_query):
+        mid = pred.get("match_id")
+        result_doc = actual_results.get(mid) or {}
+        actual_outcome = result_doc.get("actual_outcome")
+        predicted_outcome = pred.get("predicted_outcome")
+        if not actual_outcome or not predicted_outcome:
+            continue
+
+        is_correct = predicted_outcome == actual_outcome
+        for side in ("home_team", "away_team"):
+            team_name_raw = pred.get(side)
+            canonical = _canonical_team_name(team_name_raw)
+            if not canonical:
+                continue
+
+            item = team_stats.setdefault(canonical, {
+                "team": team_name_raw,
+                "resolved": 0,
+                "correct": 0,
+                "incorrect": 0,
+                "sports": set(),
+                "last_match_date": None,
+            })
+            item["resolved"] += 1
+            if is_correct:
+                item["correct"] += 1
+            else:
+                item["incorrect"] += 1
+            if pred.get("sport"):
+                item["sports"].add(pred.get("sport"))
+
+            match_date = pred.get("match_date")
+            if isinstance(match_date, str):
+                prev = item.get("last_match_date")
+                if prev is None or match_date > prev:
+                    item["last_match_date"] = match_date
+
+    rows = []
+    for data in team_stats.values():
+        resolved = int(data["resolved"])
+        if resolved < min_resolved:
+            continue
+        correct = int(data["correct"])
+        rows.append({
+            "team": data["team"],
+            "resolved": resolved,
+            "correct": correct,
+            "incorrect": int(data["incorrect"]),
+            "accuracy": round(correct / resolved, 4),
+            "sports": sorted(list(data["sports"])),
+            "last_match_date": data.get("last_match_date"),
+        })
+
+    rows.sort(key=lambda x: (x["accuracy"], x["resolved"], x["correct"]), reverse=True)
+
+    return {
+        "teams": rows[:limit],
+        "meta": {
+            "min_resolved": min_resolved,
+            "limit": limit,
+            "sport": sport,
+            "total_qualified_teams": len(rows),
+        },
+    }
 @router.get("/performance-history")
 async def get_performance_history(days: int = Query(90, ge=7, le=365)):
     """

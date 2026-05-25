@@ -34,6 +34,54 @@ function formatTime(iso) {
   }
 }
 
+function rankedPredictionSort(a, b) {
+  const rankA = Number.isFinite(Number(a?.overall_rank))
+    ? Number(a.overall_rank)
+    : Number.MAX_SAFE_INTEGER;
+  const rankB = Number.isFinite(Number(b?.overall_rank))
+    ? Number(b.overall_rank)
+    : Number.MAX_SAFE_INTEGER;
+  if (rankA !== rankB) return rankA - rankB;
+
+  const playA = Number.isFinite(Number(a?.play_rank)) ? Number(a.play_rank) : 0;
+  const playB = Number.isFinite(Number(b?.play_rank)) ? Number(b.play_rank) : 0;
+  if (playA !== playB) return playB - playA;
+
+  const confA = Number.isFinite(Number(a?.confidence_score))
+    ? Number(a.confidence_score)
+    : 0;
+  const confB = Number.isFinite(Number(b?.confidence_score))
+    ? Number(b.confidence_score)
+    : 0;
+  if (confA !== confB) return confB - confA;
+
+  return String(a?.match_id || "").localeCompare(String(b?.match_id || ""));
+}
+
+function groupRankSort(a, b) {
+  const groupA = Number.isFinite(Number(a?.group_index))
+    ? Number(a.group_index)
+    : Number.MAX_SAFE_INTEGER;
+  const groupB = Number.isFinite(Number(b?.group_index))
+    ? Number(b.group_index)
+    : Number.MAX_SAFE_INTEGER;
+  if (groupA !== groupB) return groupA - groupB;
+
+  const playA = Number.isFinite(Number(a?.play_rank)) ? Number(a.play_rank) : 0;
+  const playB = Number.isFinite(Number(b?.play_rank)) ? Number(b.play_rank) : 0;
+  if (playA !== playB) return playB - playA;
+
+  const confA = Number.isFinite(Number(a?.avg_confidence_score))
+    ? Number(a.avg_confidence_score)
+    : 0;
+  const confB = Number.isFinite(Number(b?.avg_confidence_score))
+    ? Number(b.avg_confidence_score)
+    : 0;
+  if (confA !== confB) return confB - confA;
+
+  return String(a?.group_id || "").localeCompare(String(b?.group_id || ""));
+}
+
 function outcomeTag(outcome) {
   if (outcome === "home_win")
     return <span className="tag-green text-xs">HOME WIN</span>;
@@ -199,7 +247,11 @@ function StatusCard({ status, loading }) {
 
 // ── Today fixture table ───────────────────────────────────────────────────────
 function TodayTable({ fixtures, sport, loading }) {
-  const rows = fixtures?.by_sport?.[sport] ?? [];
+  const rawRows = fixtures?.by_sport?.[sport] ?? [];
+  const rows = useMemo(
+    () => [...rawRows].sort(rankedPredictionSort),
+    [rawRows],
+  );
   const groups = useMemo(() => buildPredictionGroups(fixtures), [fixtures]);
   const groupStatusById = useMemo(() => {
     const map = {};
@@ -269,6 +321,12 @@ function TodayTable({ fixtures, sport, loading }) {
 
   return (
     <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-brand-midgray bg-brand-darkgray/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+        <p className="font-display text-xs text-white">RANKED PREDICTIONS</p>
+        <p className="font-body text-xs text-gray-600">
+          Sorted by TOP rank first, then play rank and confidence.
+        </p>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="border-b border-brand-midgray bg-brand-darkgray">
@@ -373,7 +431,10 @@ function TodayTable({ fixtures, sport, loading }) {
 }
 
 function PredictionGroupsPanel({ fixtures, loading }) {
-  const groups = useMemo(() => buildPredictionGroups(fixtures), [fixtures]);
+  const groups = useMemo(
+    () => [...buildPredictionGroups(fixtures)].sort(groupRankSort),
+    [fixtures],
+  );
 
   if (loading) {
     return (
