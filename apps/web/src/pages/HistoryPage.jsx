@@ -17,76 +17,90 @@ const SPORT = "soccer";
 const todayISO = () => watTodayISO();
 
 const predictionDateValue = (prediction) => {
-  const rawDate = prediction?.match_date || prediction?.timestamp || ''
-  const time = rawDate ? Date.parse(rawDate) : NaN
-  return Number.isFinite(time) ? time : 0
-}
+  const rawDate = prediction?.match_date || prediction?.timestamp || "";
+  const time = rawDate ? Date.parse(rawDate) : NaN;
+  return Number.isFinite(time) ? time : 0;
+};
 
 const predictionDateKey = (prediction) => {
-  const rawDate = prediction?.match_date || prediction?.timestamp || ''
-  if (!rawDate) return 'Unscheduled'
+  const rawDate = prediction?.match_date || prediction?.timestamp || "";
+  if (!rawDate) return "Unscheduled";
 
-  const dateOnly = String(rawDate).slice(0, 10)
-  return dateOnly || 'Unscheduled'
-}
+  const dateOnly = String(rawDate).slice(0, 10);
+  return dateOnly || "Unscheduled";
+};
 
 const formatPredictionDateLabel = (dateKey) => {
-  if (!dateKey || dateKey === 'Unscheduled') return 'Unscheduled'
+  if (!dateKey || dateKey === "Unscheduled") return "Unscheduled";
 
-  const date = new Date(`${dateKey}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return dateKey
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateKey;
 
-  return new Intl.DateTimeFormat('en', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date)
-}
+  return new Intl.DateTimeFormat("en", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
 
 const comparePredictionsByDate = (a, b) => {
-  const dateCompare = predictionDateValue(b) - predictionDateValue(a)
-  if (dateCompare !== 0) return dateCompare
+  const dateCompare = predictionDateValue(b) - predictionDateValue(a);
+  if (dateCompare !== 0) return dateCompare;
 
-  const confidenceA = numericValue(a?.confidence_score, 0)
-  const confidenceB = numericValue(b?.confidence_score, 0)
-  if (confidenceA !== confidenceB) return confidenceB - confidenceA
+  const confidenceA = numericValue(a?.confidence_score, 0);
+  const confidenceB = numericValue(b?.confidence_score, 0);
+  if (confidenceA !== confidenceB) return confidenceB - confidenceA;
 
-  return String(a?.match_id || '').localeCompare(String(b?.match_id || ''), undefined, { numeric: true })
-}
+  return String(a?.match_id || "").localeCompare(
+    String(b?.match_id || ""),
+    undefined,
+    { numeric: true },
+  );
+};
 
 const numericValue = (value, fallback = Number.MAX_SAFE_INTEGER) => {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : fallback
-}
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
 
 const groupIndexFromId = (groupId) => {
-  const match = String(groupId || '').match(/-G(\d+)$/i)
-  return match ? numericValue(match[1]) : Number.MAX_SAFE_INTEGER
-}
+  const match = String(groupId || "").match(/-G(\d+)$/i);
+  return match ? numericValue(match[1]) : Number.MAX_SAFE_INTEGER;
+};
 
 const compareGroupHistory = (a, b) => {
-  const dateCompare = String(b.matchDate || '').localeCompare(String(a.matchDate || ''))
-  if (dateCompare !== 0) return dateCompare
+  const dateCompare = String(b.matchDate || "").localeCompare(
+    String(a.matchDate || ""),
+  );
+  if (dateCompare !== 0) return dateCompare;
 
-  const groupA = numericValue(a.groupIndex, groupIndexFromId(a.groupId))
-  const groupB = numericValue(b.groupIndex, groupIndexFromId(b.groupId))
-  if (groupA !== groupB) return groupA - groupB
+  const groupA = numericValue(a.groupIndex, groupIndexFromId(a.groupId));
+  const groupB = numericValue(b.groupIndex, groupIndexFromId(b.groupId));
+  if (groupA !== groupB) return groupA - groupB;
 
-  return String(a.groupId || '').localeCompare(String(b.groupId || ''), undefined, { numeric: true })
-}
+  return String(a.groupId || "").localeCompare(
+    String(b.groupId || ""),
+    undefined,
+    { numeric: true },
+  );
+};
 
 const compareGroupGames = (a, b) => {
-  const playA = numericValue(a.playRank, 0)
-  const playB = numericValue(b.playRank, 0)
-  if (playA !== playB) return playB - playA
+  const playA = numericValue(a.playRank, 0);
+  const playB = numericValue(b.playRank, 0);
+  if (playA !== playB) return playB - playA;
 
-  const confidenceA = numericValue(a.confidenceScore, 0)
-  const confidenceB = numericValue(b.confidenceScore, 0)
-  if (confidenceA !== confidenceB) return confidenceB - confidenceA
+  const confidenceA = numericValue(a.confidenceScore, 0);
+  const confidenceB = numericValue(b.confidenceScore, 0);
+  if (confidenceA !== confidenceB) return confidenceB - confidenceA;
 
-  return String(a.matchId || '').localeCompare(String(b.matchId || ''), undefined, { numeric: true })
-}
+  return String(a.matchId || "").localeCompare(
+    String(b.matchId || ""),
+    undefined,
+    { numeric: true },
+  );
+};
 
 export default function HistoryPage() {
   const [searchParams] = useSearchParams();
@@ -218,7 +232,7 @@ export default function HistoryPage() {
   const sortedPredictions = useMemo(
     () => [...data].sort(comparePredictionsByDate),
     [data],
-  )
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -365,9 +379,11 @@ export default function HistoryPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
-            onClick={() => setView('byDate')}
-            className={view === 'byDate' ? 'btn-primary' : 'btn-ghost'}
-          >BY DATE</button>
+            onClick={() => setView("byDate")}
+            className={view === "byDate" ? "btn-primary" : "btn-ghost"}
+          >
+            BY DATE
+          </button>
           <button
             onClick={() => setView("table")}
             className={view === "table" ? "btn-primary" : "btn-ghost"}
@@ -456,6 +472,7 @@ export default function HistoryPage() {
             )}
           </div>
         </div>
+      </div>
 
       {error && (
         <div className="bg-brand-reddark border border-brand-red text-brand-redlight font-display text-xs px-4 py-3 rounded-sm mb-4">
@@ -495,7 +512,9 @@ export default function HistoryPage() {
                 <section key={group.dateKey} className="card overflow-hidden">
                   <div className="flex items-center justify-between gap-3 border-b border-brand-midgray bg-brand-darkgray px-4 py-3">
                     <div>
-                      <p className="font-display text-sm text-white">{group.label}</p>
+                      <p className="font-display text-sm text-white">
+                        {group.label}
+                      </p>
                       <p className="font-body text-xs text-gray-600 mt-1">
                         Predictions grouped by this match date
                       </p>
@@ -518,7 +537,9 @@ export default function HistoryPage() {
               ))}
           {!loading && !predictionsByDate.length && (
             <div className="card p-8 text-center">
-              <p className="font-display text-gray-600 text-sm">NO PREDICTIONS MATCH YOUR FILTER</p>
+              <p className="font-display text-gray-600 text-sm">
+                NO PREDICTIONS MATCH YOUR FILTER
+              </p>
             </div>
           )}
         </div>
@@ -546,7 +567,8 @@ export default function HistoryPage() {
                   <div>
                     <p className="label">{label}</p>
                     <p className="font-display text-xs text-gray-600 mt-1">
-                      {predictions.length} prediction{predictions.length === 1 ? "" : "s"}
+                      {predictions.length} prediction
+                      {predictions.length === 1 ? "" : "s"}
                     </p>
                   </div>
                 </div>

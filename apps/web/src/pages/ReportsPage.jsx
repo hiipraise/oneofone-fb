@@ -82,6 +82,7 @@ function renderMarkdown(markdown) {
   }
 
   return <div className="space-y-2">{elements}</div>;
+}
 function getActualBtts(result) {
   if (result?.home_score == null || result?.away_score == null) return null;
   const homeScore = Number(result.home_score);
@@ -97,7 +98,8 @@ function getPredictedBtts(prediction) {
 
   const yes = Number(btts.yes);
   const no = Number(btts.no);
-  if (Number.isFinite(yes) && Number.isFinite(no)) return yes >= no ? "Yes" : "No";
+  if (Number.isFinite(yes) && Number.isFinite(no))
+    return yes >= no ? "Yes" : "No";
   if (Number.isFinite(yes)) return yes >= 0.5 ? "Yes" : "No";
   if (Number.isFinite(no)) return no >= 0.5 ? "No" : "Yes";
   return null;
@@ -221,8 +223,12 @@ function AccuracyBar({ label, total, correct, accuracy }) {
 function GgMarketAccuracyDashboard({ ggAccuracy }) {
   const yesBucket = ggAccuracy.by_prediction?.Yes || {};
   const noBucket = ggAccuracy.by_prediction?.No || {};
-  const correctPct = ggAccuracy.total ? (ggAccuracy.correct / ggAccuracy.total) * 100 : 0;
-  const missPct = ggAccuracy.total ? (ggAccuracy.miss / ggAccuracy.total) * 100 : 0;
+  const correctPct = ggAccuracy.total
+    ? (ggAccuracy.correct / ggAccuracy.total) * 100
+    : 0;
+  const missPct = ggAccuracy.total
+    ? (ggAccuracy.miss / ggAccuracy.total) * 100
+    : 0;
 
   return (
     <section className="card p-5 mb-4">
@@ -233,7 +239,8 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
             GG (BOTH TEAMS TO SCORE)
           </h2>
           <p className="font-body text-xs text-gray-600 mt-1">
-            Compares GG Yes/No predictions against final scores where both home and away scores are available.
+            Compares GG Yes/No predictions against final scores where both home
+            and away scores are available.
           </p>
         </div>
         <span className="font-display text-xs text-gray-600">
@@ -242,9 +249,21 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-        <StatTile label="GG ACCURACY" value={formatPct(ggAccuracy.accuracy)} tone="text-brand-greenlight" />
-        <StatTile label="CORRECT" value={ggAccuracy.correct} tone="text-brand-greenlight" />
-        <StatTile label="MISSES" value={ggAccuracy.miss} tone="text-brand-redlight" />
+        <StatTile
+          label="GG ACCURACY"
+          value={formatPct(ggAccuracy.accuracy)}
+          tone="text-brand-greenlight"
+        />
+        <StatTile
+          label="CORRECT"
+          value={ggAccuracy.correct}
+          tone="text-brand-greenlight"
+        />
+        <StatTile
+          label="MISSES"
+          value={ggAccuracy.miss}
+          tone="text-brand-redlight"
+        />
         <StatTile label="ACTUAL GG YES" value={ggAccuracy.actual_yes} />
       </div>
 
@@ -265,13 +284,18 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="font-display text-xs text-gray-400">Correct vs Miss Breakdown</span>
+              <span className="font-display text-xs text-gray-400">
+                Correct vs Miss Breakdown
+              </span>
               <span className="font-display text-xs text-gray-600 tabular-nums">
                 {Math.round(correctPct)}% / {Math.round(missPct)}%
               </span>
             </div>
             <div className="flex h-3 bg-brand-darkgray rounded-full overflow-hidden border border-brand-midgray">
-              <div className="bg-brand-green" style={{ width: `${correctPct}%` }} />
+              <div
+                className="bg-brand-green"
+                style={{ width: `${correctPct}%` }}
+              />
               <div className="bg-brand-red" style={{ width: `${missPct}%` }} />
             </div>
           </div>
@@ -282,25 +306,33 @@ function GgMarketAccuracyDashboard({ ggAccuracy }) {
           <div className="space-y-2">
             {ggAccuracy.recent?.length ? (
               ggAccuracy.recent.map((item) => (
-                <div key={item.matchId} className="flex items-center justify-between gap-3">
+                <div
+                  key={item.matchId}
+                  className="flex items-center justify-between gap-3"
+                >
                   <div className="min-w-0">
-                    <p className="font-display text-xs text-white truncate">{item.label}</p>
+                    <p className="font-display text-xs text-white truncate">
+                      {item.label}
+                    </p>
                     <p className="font-display text-[10px] text-gray-600">
                       Pred {item.predicted} · Actual {item.actual}
                     </p>
                   </div>
-                  <span className={`font-display text-[10px] px-2 py-0.5 rounded-sm border shrink-0 ${
-                    item.correct
-                      ? "text-brand-greenlight bg-brand-greendark border-brand-green"
-                      : "text-brand-redlight bg-brand-reddark border-brand-red"
-                  }`}>
+                  <span
+                    className={`font-display text-[10px] px-2 py-0.5 rounded-sm border shrink-0 ${
+                      item.correct
+                        ? "text-brand-greenlight bg-brand-greendark border-brand-green"
+                        : "text-brand-redlight bg-brand-reddark border-brand-red"
+                    }`}
+                  >
                     {item.correct ? "CORRECT" : "MISS"}
                   </span>
                 </div>
               ))
             ) : (
               <p className="font-body text-xs text-gray-600">
-                No resolved GG samples yet. Submit final scores to activate this accuracy report.
+                No resolved GG samples yet. Submit final scores to activate this
+                accuracy report.
               </p>
             )}
           </div>
@@ -573,32 +605,56 @@ export default function ReportsPage() {
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mt-4">
                   <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">PREDICTIONS</p>
-                    <p className="font-display text-sm text-white">{report.facts.totalPredictions}</p>
-                  </div>
-                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">SCORED</p>
-                    <p className="font-display text-sm text-white">{report.facts.scoredResolved}</p>
-                  </div>
-                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">SUBMITTED RESULTS</p>
-                    <p className="font-display text-sm text-white">{report.facts.rawResolved}</p>
-                  </div>
-                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">ACCURACY</p>
+                    <p className="font-display text-[10px] text-gray-600">
+                      PREDICTIONS
+                    </p>
                     <p className="font-display text-sm text-white">
-                      {report.facts.accuracy != null ? `${(report.facts.accuracy * 100).toFixed(1)}%` : "N/A"}
+                      {report.facts.totalPredictions}
                     </p>
                   </div>
                   <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">BRIER</p>
+                    <p className="font-display text-[10px] text-gray-600">
+                      SCORED
+                    </p>
                     <p className="font-display text-sm text-white">
-                      {report.facts.brier != null ? report.facts.brier.toFixed(4) : "N/A"}
+                      {report.facts.scoredResolved}
                     </p>
                   </div>
                   <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
-                    <p className="font-display text-[10px] text-gray-600">LIVE WINDOW</p>
-                    <p className="font-display text-sm text-white">{report.facts.predictionsCount} preds</p>
+                    <p className="font-display text-[10px] text-gray-600">
+                      SUBMITTED RESULTS
+                    </p>
+                    <p className="font-display text-sm text-white">
+                      {report.facts.rawResolved}
+                    </p>
+                  </div>
+                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
+                    <p className="font-display text-[10px] text-gray-600">
+                      ACCURACY
+                    </p>
+                    <p className="font-display text-sm text-white">
+                      {report.facts.accuracy != null
+                        ? `${(report.facts.accuracy * 100).toFixed(1)}%`
+                        : "N/A"}
+                    </p>
+                  </div>
+                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
+                    <p className="font-display text-[10px] text-gray-600">
+                      BRIER
+                    </p>
+                    <p className="font-display text-sm text-white">
+                      {report.facts.brier != null
+                        ? report.facts.brier.toFixed(4)
+                        : "N/A"}
+                    </p>
+                  </div>
+                  <div className="bg-brand-darkgray border border-brand-midgray rounded-sm p-2">
+                    <p className="font-display text-[10px] text-gray-600">
+                      LIVE WINDOW
+                    </p>
+                    <p className="font-display text-sm text-white">
+                      {report.facts.predictionsCount} preds
+                    </p>
                   </div>
                 </div>
               </section>
@@ -611,7 +667,10 @@ export default function ReportsPage() {
                   <ul className="space-y-2">
                     {report.working.length ? (
                       report.working.map((item, idx) => (
-                        <li key={idx} className="font-body text-sm text-gray-300">
+                        <li
+                          key={idx}
+                          className="font-body text-sm text-gray-300"
+                        >
                           ✅ {item}
                         </li>
                       ))
@@ -628,7 +687,10 @@ export default function ReportsPage() {
                   <ul className="space-y-2">
                     {report.needsImprovement.length ? (
                       report.needsImprovement.map((item, idx) => (
-                        <li key={idx} className="font-body text-sm text-gray-300">
+                        <li
+                          key={idx}
+                          className="font-body text-sm text-gray-300"
+                        >
                           ⚠ {item}
                         </li>
                       ))
@@ -673,7 +735,9 @@ export default function ReportsPage() {
                         className="mt-1"
                       />
                       <div>
-                        <p className={`font-display text-sm ${taskStatus[task.id] ? "text-brand-greenlight line-through" : "text-white"}`}>
+                        <p
+                          className={`font-display text-sm ${taskStatus[task.id] ? "text-brand-greenlight line-through" : "text-white"}`}
+                        >
                           {task.title}
                         </p>
                         <p className="font-body text-xs text-gray-600 mt-1">

@@ -55,6 +55,8 @@ def _goals_ou_all(home_xg: float, away_xg: float) -> Dict[str, Any]:
         "home_xg": round(home_xg, 2),
         "away_xg": round(away_xg, 2),
     }
+    best_line = None
+    best_confidence = -1.0
     for line in [0.5, 1.5, 2.5, 3.5, 4.5]:
         max_g = 14
         p_under = sum(
@@ -65,6 +67,16 @@ def _goals_ou_all(home_xg: float, away_xg: float) -> Dict[str, Any]:
         p_under = float(np.clip(p_under, 0.01, 0.99))
         key = f"over_{str(line).replace('.', '_')}"
         result[key] = {"over": round(1 - p_under, 4), "under": round(p_under, 4)}
+        confidence = abs(result[key]["over"] - 0.5)
+        if confidence > best_confidence:
+            best_confidence = confidence
+            best_line = (line, result[key])
+    if best_line is not None:
+        line, odds = best_line
+        result["pick"] = {
+            "selection": f"{'Over' if odds['over'] >= odds['under'] else 'Under'} {line}",
+            "probability": round(max(odds["over"], odds["under"]), 4),
+        }
     return result
 
 
@@ -136,6 +148,89 @@ def _bookings(home_form: float, away_form: float, rivalry: float = 0.5) -> Dict[
             "under": round(float(np.clip(_cdf(int(line), expected), 0.01, 0.99)), 4),
         }
     return result
+
+
+def _score_grid(home_xg: float, away_xg: float, max_goals: int = 8) -> List[Dict[str, float]]:
+    grid: List[Dict[str, float]] = []
+    total = 0.0
+    for home_goals in range(max_goals + 1):
+        home_prob = _pmf(home_goals, home_xg)
+        for away_goals in range(max_goals + 1):
+            probability = home_prob * _pmf(away_goals, away_xg)
+            total += probability
+            grid.append({"home": home_goals, "away": away_goals, "probability": probability})
+
+    if total > 0:
+        for item in grid:
+            item["probability"] = float(item["probability"] / total)
+
+    return grid
+
+
+def _three_way_from_grid(grid: List[Dict[str, float]]) -> Dict[str, float]:
+    home = sum(item["probability"] for item in grid if item["home"] > item["away"])
+    draw = sum(item["probability"] for item in grid if item["home"] == item["away"])
+    away = sum(item["probability"] for item in grid if item["home"] < item["away"])
+    return {
+        "home": round(float(np.clip(home, 0.01, 0.99)), 4),
+        "draw": round(float(np.clip(draw, 0.01, 0.99)), 4),
+        "away": round(float(np.clip(away, 0.01, 0.99)), 4),
+    }
+
+
+def _best_three_way_choice(probabilities: Dict[str, float]) -> Dict[str, Any]:
+    selection = max(probabilities, key=probabilities.get)
+    return {
+        "selection": selection,
+        "probability": round(float(probabilities[selection]), 4),
+    }
+
+
+def _binary_market(yes_label: str, yes_probability: float, no_label: str) -> Dict[str, Any]:
+    no_probability = float(np.clip(1.0 - yes_probability, 0.01, 0.99))
+    yes_probability = float(np.clip(yes_probability, 0.01, 0.99))
+    selection = yes_label if yes_probability >= no_probability else no_label
+    return {
+        yes_label.lower().replace(" ", "_"): round(yes_probability, 4),
+        no_label.lower().replace(" ", "_"): round(no_probability, 4),
+        "result": selection,
+        "pick": selection,
+        "pick_probability": round(max(yes_probability, no_probability), 4),
+        "yes_pct": round(yes_probability * 100, 1),
+        "no_pct": round(no_probability * 100, 1),
+    }
+
+
+def _ou_market(lam: float, lines: List[float]) -> Dict[str, Any]:
+    market: Dict[str, Any] = {}
+    for line in lines:
+        key = f"over_{str(line).replace('.', '_')}"
+        market[key] = _ou(lam, line)
+    best_key = max(
+        market,
+        key=lambda key: abs(market[key]["over"] - 0.5),
+    )
+    market["pick"] = {
+        "selection": f"{'Over' if market[best_key]['over'] >= market[best_key]['under'] else 'Under'} {best_key.replace('over_', '').replace('_', '.')}"
+        ,
+        "probability": round(max(market[best_key]["over"], market[best_key]["under"]), 4),
+    }
+    return market
+
+
+def _team_totals(home_xg: float, away_xg: float) -> Dict[str, Any]:
+    return {
+        "home": _ou_market(home_xg, [0.5, 1.5, 2.5]),
+        "away": _ou_market(away_xg, [0.5, 1.5, 2.5]),
+    }
+
+
+def _half_xg(home_xg: float, away_xg: float, factor: float) -> tuple[float, float]:
+    return float(np.clip(home_xg * factor, 0.15, 4.0)), float(np.clip(away_xg * factor, 0.15, 4.0))
+
+
+def _union_probability(grid: List[Dict[str, float]], predicate) -> float:
+    return round(sum(item["probability"] for item in grid if predicate(item)), 4)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +355,68 @@ def compute_all_markets(features: Dict[str, float], sport: str) -> Dict[str, Any
         home_xg = float(np.clip(raw_home_xg * (1.0 - home_inj * 0.5), 0.3, 5.0))
         away_xg = float(np.clip(raw_away_xg * (1.0 - away_inj * 0.5), 0.3, 5.0))
 
+        full_grid = _score_grid(home_xg, away_xg)
+        full_time_three_way = _three_way_from_grid(full_grid)
+        full_time_pick = _best_three_way_choice(full_time_three_way)
+        readable_three_way = {"home": "Home", "draw": "Draw", "away": "Away"}
+        double_chance = {
+            "home_or_draw": round(full_time_three_way["home"] + full_time_three_way["draw"], 4),
+            "home_or_away": round(full_time_three_way["home"] + full_time_three_way["away"], 4),
+            "draw_or_away": round(full_time_three_way["draw"] + full_time_three_way["away"], 4),
+        }
+        double_chance_pick = max(double_chance, key=double_chance.get)
+        readable_double_chance = {
+            "home_or_draw": "1X",
+            "home_or_away": "12",
+            "draw_or_away": "X2",
+        }
+        dnb = {
+            "home": round(full_time_three_way["home"] / max(1.0 - full_time_three_way["draw"], 0.01), 4),
+            "away": round(full_time_three_way["away"] / max(1.0 - full_time_three_way["draw"], 0.01), 4),
+        }
+        dnb_pick = "home" if dnb["home"] >= dnb["away"] else "away"
+
+        first_half_home_xg, first_half_away_xg = _half_xg(home_xg, away_xg, 0.45)
+        second_half_home_xg, second_half_away_xg = _half_xg(home_xg, away_xg, 0.55)
+        first_half_grid = _score_grid(first_half_home_xg, first_half_away_xg, max_goals=5)
+        second_half_grid = _score_grid(second_half_home_xg, second_half_away_xg, max_goals=5)
+        first_half_three_way = _three_way_from_grid(first_half_grid)
+        second_half_three_way = _three_way_from_grid(second_half_grid)
+        first_half_btts = _btts(first_half_home_xg, first_half_away_xg)
+        first_half_pick = _best_three_way_choice(first_half_three_way)
+
+        ten_minute_home_xg, ten_minute_away_xg = _half_xg(home_xg, away_xg, 10.0 / 90.0)
+        ten_minute_grid = _score_grid(ten_minute_home_xg, ten_minute_away_xg, max_goals=3)
+        ten_minute_three_way = _three_way_from_grid(ten_minute_grid)
+        ten_minute_pick = _best_three_way_choice(ten_minute_three_way)
+
+        home_win_either_half = round(
+            1.0 - (1.0 - first_half_three_way["home"]) * (1.0 - second_half_three_way["home"]),
+            4,
+        )
+        away_win_either_half = round(
+            1.0 - (1.0 - first_half_three_way["away"]) * (1.0 - second_half_three_way["away"]),
+            4,
+        )
+
+        home_or_gg = _union_probability(
+            full_grid,
+            lambda item: item["home"] > item["away"] or (item["home"] > 0 and item["away"] > 0),
+        )
+        draw_or_gg = _union_probability(
+            full_grid,
+            lambda item: item["home"] == item["away"] or (item["home"] > 0 and item["away"] > 0),
+        )
+        away_or_gg = _union_probability(
+            full_grid,
+            lambda item: item["home"] < item["away"] or (item["home"] > 0 and item["away"] > 0),
+        )
+        readable_combo = {
+            "home_or_gg": "Home or GG",
+            "draw_or_gg": "Draw or GG",
+            "away_or_gg": "Away or GG",
+        }
+
         goals_ou = _goals_ou_all(home_xg, away_xg)
         btts = _btts(home_xg, away_xg)
         correct_scores = _correct_score(home_xg, away_xg)
@@ -272,18 +429,86 @@ def compute_all_markets(features: Dict[str, float], sport: str) -> Dict[str, Any
                 correct_scores = _correct_score(home_xg, away_xg)
 
         markets["goals_over_under"]  = goals_ou
+        markets["one_x_two"] = {
+            "home": full_time_three_way["home"],
+            "draw": full_time_three_way["draw"],
+            "away": full_time_three_way["away"],
+            "pick": {"selection": readable_three_way[full_time_pick["selection"]], "probability": full_time_pick["probability"]},
+        }
+        markets["double_chance"] = {
+            **double_chance,
+            "pick": {"selection": readable_double_chance[double_chance_pick], "probability": round(double_chance[double_chance_pick], 4)},
+        }
+        markets["draw_no_bet"] = {
+            "home": dnb["home"],
+            "away": dnb["away"],
+            "pick": {"selection": readable_three_way[dnb_pick], "probability": round(dnb[dnb_pick], 4)},
+        }
         markets["btts"]              = btts
+        markets["first_half_btts"] = first_half_btts
+        markets["first_half_one_x_two"] = {
+            "home": first_half_three_way["home"],
+            "draw": first_half_three_way["draw"],
+            "away": first_half_three_way["away"],
+            "pick": {"selection": readable_three_way[first_half_pick["selection"]], "probability": first_half_pick["probability"]},
+        }
+        markets["ten_minute_one_x_two"] = {
+            "home": ten_minute_three_way["home"],
+            "draw": ten_minute_three_way["draw"],
+            "away": ten_minute_three_way["away"],
+            "pick": {"selection": readable_three_way[ten_minute_pick["selection"]], "probability": ten_minute_pick["probability"]},
+        }
+        markets["either_half"] = {
+            "home_win_either_half": home_win_either_half,
+            "away_win_either_half": away_win_either_half,
+            "pick": {
+                "selection": "Home" if home_win_either_half >= away_win_either_half else "Away",
+                "probability": round(max(home_win_either_half, away_win_either_half), 4),
+            },
+        }
+        markets["combo_markets"] = {
+            "home_or_gg": home_or_gg,
+            "draw_or_gg": draw_or_gg,
+            "away_or_gg": away_or_gg,
+            "pick": {
+                "selection": readable_combo[max(
+                    {"home_or_gg": home_or_gg, "draw_or_gg": draw_or_gg, "away_or_gg": away_or_gg},
+                    key={"home_or_gg": home_or_gg, "draw_or_gg": draw_or_gg, "away_or_gg": away_or_gg}.get,
+                )],
+                "probability": round(max(home_or_gg, draw_or_gg, away_or_gg), 4),
+            },
+        }
         markets["correct_score"]     = {
             "top_1": correct_scores[0] if correct_scores else {"score": "1-0", "probability": 0.0},
             "top_3": correct_scores[:3],
             "top_10": correct_scores[:10],
         }
+        markets["team_goals_over_under"] = {
+            "home": _ou_market(home_xg, [0.5, 1.5, 2.5]),
+            "away": _ou_market(away_xg, [0.5, 1.5, 2.5]),
+        }
+        markets["first_half_goals_over_under"] = _goals_ou_all(first_half_home_xg, first_half_away_xg)
+        markets["ten_minute_goals_over_under"] = _goals_ou_all(ten_minute_home_xg, ten_minute_away_xg)
         markets["corners"]           = _corners(home_form, away_form, home_att, away_att)
+        markets["team_corners_over_under"] = {
+            "home": _ou_market(home_att * 5.2, [3.5, 4.5, 5.5, 6.5, 7.5]),
+            "away": _ou_market(away_att * 5.2, [3.5, 4.5, 5.5, 6.5, 7.5]),
+        }
         rivalry = abs(h2h_signal - 0.5) * 2.0
         markets["bookings"]          = _bookings(home_form, away_form, rivalry)
         markets["asian_handicap"]    = [
             _asian_handicap(home_xg, away_xg, h)
             for h in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
+        ]
+        markets["market_picks"] = [
+            {"market": "1X2", "selection": readable_three_way[full_time_pick["selection"]], "probability": full_time_pick["probability"]},
+            {"market": "Double Chance", "selection": readable_double_chance[double_chance_pick], "probability": round(double_chance[double_chance_pick], 4)},
+            {"market": "Draw No Bet", "selection": readable_three_way[dnb_pick], "probability": round(dnb[dnb_pick], 4)},
+            {"market": "Goals O/U", "selection": goals_ou.get("pick", {}).get("selection", "Over 2.5"), "probability": goals_ou.get("pick", {}).get("probability", 0.0)},
+            {"market": "BTTS", "selection": btts["result"], "probability": btts["yes"] if btts["result"] == "Yes" else btts["no"]},
+            {"market": "First Half 1X2", "selection": readable_three_way[first_half_pick["selection"]], "probability": first_half_pick["probability"]},
+            {"market": "10 Minute 1X2", "selection": readable_three_way[ten_minute_pick["selection"]], "probability": ten_minute_pick["probability"]},
+            {"market": "Either Half", "selection": "Home" if home_win_either_half >= away_win_either_half else "Away", "probability": round(max(home_win_either_half, away_win_either_half), 4)},
         ]
         markets["consistency_checks"] = {
             "high_over25_requires_high_xg": bool(not (over_25 > 0.6 and (home_xg + away_xg) < 2.4)),

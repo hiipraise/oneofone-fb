@@ -111,9 +111,26 @@ function OUTable({ data, lines, labelFn, title }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ExtendedMarketsPanel({ markets, sport }) {
   const sportL = (sport || "").toLowerCase();
+  const correctScores =
+    markets?.correct_score?.top_10 || markets?.correct_score || [];
 
   // Build tab list based on what data is available and what sport we are
   const allTabs = [
+    {
+      key: "summary",
+      label: "SUMMARY",
+      sports: ["soccer"],
+      show: !!markets?.market_picks?.length,
+    },
+    {
+      key: "result",
+      label: "RESULTS",
+      sports: ["soccer"],
+      show:
+        !!markets?.one_x_two ||
+        !!markets?.double_chance ||
+        !!markets?.draw_no_bet,
+    },
     {
       key: "goals",
       label: "GOALS O/U",
@@ -125,6 +142,29 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
       label: "BOTH TEAMS TO SCORE",
       sports: ["soccer"],
       show: !!markets?.btts,
+    },
+    {
+      key: "first_half",
+      label: "1ST HALF",
+      sports: ["soccer"],
+      show:
+        !!markets?.first_half_one_x_two ||
+        !!markets?.first_half_btts ||
+        !!markets?.first_half_goals_over_under,
+    },
+    {
+      key: "ten_minute",
+      label: "10 MIN",
+      sports: ["soccer"],
+      show:
+        !!markets?.ten_minute_one_x_two ||
+        !!markets?.ten_minute_goals_over_under,
+    },
+    {
+      key: "team_totals",
+      label: "TEAM TOTALS",
+      sports: ["soccer"],
+      show: !!markets?.team_goals_over_under,
     },
     {
       key: "correct_score",
@@ -139,10 +179,22 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
       show: !!markets?.corners,
     },
     {
+      key: "team_corners",
+      label: "TEAM CORNERS",
+      sports: ["soccer"],
+      show: !!markets?.team_corners_over_under,
+    },
+    {
       key: "bookings",
       label: "BOOKINGS",
       sports: ["soccer"],
       show: !!markets?.bookings,
+    },
+    {
+      key: "combo",
+      label: "COMBOS",
+      sports: ["soccer"],
+      show: !!markets?.combo_markets,
     },
     {
       key: "asian",
@@ -182,6 +234,90 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
       </div>
 
       {/* ── Soccer tabs ── */}
+      {tab === "summary" && markets.market_picks && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {markets.market_picks.map((pick) => (
+            <div
+              key={`${pick.market}-${pick.selection}`}
+              className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4"
+            >
+              <p className="label mb-2">{pick.market}</p>
+              <p className="font-display text-lg text-white">
+                {pick.selection}
+              </p>
+              <p className="font-display text-xs mt-1 text-brand-greenlight tabular-nums">
+                {Math.round((pick.probability || 0) * 100)}%
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "result" &&
+        (markets.one_x_two || markets.double_chance || markets.draw_no_bet) && (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {markets.one_x_two && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">1X2</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    ["HOME", markets.one_x_two.home],
+                    ["DRAW", markets.one_x_two.draw],
+                    ["AWAY", markets.one_x_two.away],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+                <p className="font-body text-xs text-gray-600 mt-3">
+                  Pick: {markets.one_x_two.pick?.selection || "-"}
+                </p>
+              </div>
+            )}
+            {markets.double_chance && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">DOUBLE CHANCE</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    ["1X", markets.double_chance.home_or_draw],
+                    ["12", markets.double_chance.home_or_away],
+                    ["X2", markets.double_chance.draw_or_away],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+                <p className="font-body text-xs text-gray-600 mt-3">
+                  Pick: {markets.double_chance.pick?.selection || "-"}
+                </p>
+              </div>
+            )}
+            {markets.draw_no_bet && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">DRAW NO BET</p>
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  {[
+                    ["HOME", markets.draw_no_bet.home],
+                    ["AWAY", markets.draw_no_bet.away],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+                <p className="font-body text-xs text-gray-600 mt-3">
+                  Pick: {markets.draw_no_bet.pick?.selection || "-"}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
       {tab === "goals" && markets.goals_over_under && (
         <div>
           <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-3">
@@ -210,6 +346,9 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
               </div>
             ))}
           </div>
+          <p className="font-body text-xs text-gray-600 mb-3">
+            Pick: {markets.goals_over_under.pick?.selection || "-"}
+          </p>
           <OUTable
             data={markets.goals_over_under}
             lines={["over_0_5", "over_1_5", "over_2_5", "over_3_5", "over_4_5"]}
@@ -235,13 +374,144 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
         </div>
       )}
 
+      {tab === "first_half" &&
+        (markets.first_half_one_x_two ||
+          markets.first_half_btts ||
+          markets.first_half_goals_over_under) && (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {markets.first_half_one_x_two && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">1ST HALF 1X2</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    ["HOME", markets.first_half_one_x_two.home],
+                    ["DRAW", markets.first_half_one_x_two.draw],
+                    ["AWAY", markets.first_half_one_x_two.away],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+                <p className="font-body text-xs text-gray-600 mt-3">
+                  Pick: {markets.first_half_one_x_two.pick?.selection || "-"}
+                </p>
+              </div>
+            )}
+            {markets.first_half_btts && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">1ST HALF BTTS</p>
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  {[
+                    ["GG", markets.first_half_btts.yes],
+                    ["NG", markets.first_half_btts.no],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {markets.first_half_goals_over_under && (
+              <div>
+                <p className="font-body text-xs text-gray-600 mb-3">
+                  First-half scoring lines
+                </p>
+                <OUTable
+                  data={markets.first_half_goals_over_under}
+                  lines={[
+                    "over_0_5",
+                    "over_1_5",
+                    "over_2_5",
+                    "over_3_5",
+                    "over_4_5",
+                  ]}
+                  labelFn={(k) =>
+                    `${k.replace("over_", "").replace("_", ".")} Goals`
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+      {tab === "ten_minute" &&
+        (markets.ten_minute_one_x_two ||
+          markets.ten_minute_goals_over_under) && (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {markets.ten_minute_one_x_two && (
+              <div className="border border-brand-midgray bg-brand-darkgray rounded-sm p-4">
+                <p className="label mb-3">10 MINUTE 1X2</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    ["HOME", markets.ten_minute_one_x_two.home],
+                    ["DRAW", markets.ten_minute_one_x_two.draw],
+                    ["AWAY", markets.ten_minute_one_x_two.away],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span className="label text-[10px]">{label}</span>
+                      <Prob value={value} />
+                    </div>
+                  ))}
+                </div>
+                <p className="font-body text-xs text-gray-600 mt-3">
+                  Pick: {markets.ten_minute_one_x_two.pick?.selection || "-"}
+                </p>
+              </div>
+            )}
+            {markets.ten_minute_goals_over_under && (
+              <div>
+                <p className="font-body text-xs text-gray-600 mb-3">
+                  10-minute scoring lines
+                </p>
+                <OUTable
+                  data={markets.ten_minute_goals_over_under}
+                  lines={[
+                    "over_0_5",
+                    "over_1_5",
+                    "over_2_5",
+                    "over_3_5",
+                    "over_4_5",
+                  ]}
+                  labelFn={(k) =>
+                    `${k.replace("over_", "").replace("_", ".")} Goals`
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+      {tab === "team_totals" && markets.team_goals_over_under && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {[
+            ["HOME TEAM", markets.team_goals_over_under.home],
+            ["AWAY TEAM", markets.team_goals_over_under.away],
+          ].map(([title, data]) => (
+            <div key={title}>
+              <p className="label mb-3">{title}</p>
+              <OUTable
+                data={data}
+                lines={["over_0_5", "over_1_5", "over_2_5"]}
+                labelFn={(k) =>
+                  `${k.replace("over_", "").replace("_", ".")} Goals`
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === "correct_score" && markets.correct_score && (
         <div>
           <p className="font-body text-xs text-gray-600 mb-3">
             Top 10 scores by Poisson probability
           </p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            {markets.correct_score.slice(0, 10).map((cs, i) => (
+            {correctScores.slice(0, 10).map((cs, i) => (
               <div
                 key={cs.score}
                 className={`border p-2 rounded-sm text-center ${
@@ -293,6 +563,32 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
         </div>
       )}
 
+      {tab === "team_corners" && markets.team_corners_over_under && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {[
+            ["HOME TEAM", markets.team_corners_over_under.home],
+            ["AWAY TEAM", markets.team_corners_over_under.away],
+          ].map(([title, data]) => (
+            <div key={title}>
+              <p className="label mb-3">{title}</p>
+              <OUTable
+                data={data}
+                lines={[
+                  "over_3_5",
+                  "over_4_5",
+                  "over_5_5",
+                  "over_6_5",
+                  "over_7_5",
+                ]}
+                labelFn={(k) =>
+                  `${k.replace("over_", "").replace("_", ".")} Corners`
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === "bookings" && markets.bookings && (
         <div>
           <div className="mb-4">
@@ -306,6 +602,29 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
             lines={["line_2_5", "line_3_5", "line_4_5", "line_5_5"]}
             labelFn={(k) => `${k.replace("line_", "").replace("_", ".")} Cards`}
           />
+        </div>
+      )}
+
+      {tab === "combo" && markets.combo_markets && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            { label: "HOME OR GG", val: markets.combo_markets.home_or_gg },
+            { label: "DRAW OR GG", val: markets.combo_markets.draw_or_gg },
+            { label: "AWAY OR GG", val: markets.combo_markets.away_or_gg },
+          ].map(({ label, val }) => (
+            <div
+              key={label}
+              className="flex flex-col items-center gap-2 p-6 bg-brand-darkgray border border-brand-midgray rounded-sm"
+            >
+              <span className="label text-center">{label}</span>
+              <Prob value={val} />
+            </div>
+          ))}
+          <div className="sm:col-span-3">
+            <p className="font-body text-xs text-gray-600">
+              Pick: {markets.combo_markets.pick?.selection || "-"}
+            </p>
+          </div>
         </div>
       )}
 
