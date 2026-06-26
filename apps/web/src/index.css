@@ -8,6 +8,11 @@
     box-sizing: border-box;
   }
 
+  html {
+    min-width: 320px;
+    overflow-x: hidden;
+  }
+
   body {
     background-color: #0a0a0a;
     color: #e5e5e5;
@@ -16,6 +21,30 @@
     padding: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    text-size-adjust: 100%;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  button,
+  [role="button"],
+  input,
+  select {
+    min-height: 48px;
+  }
+
+  img,
+  svg,
+  canvas,
+  video {
+    max-width: 100%;
   }
 
   ::-webkit-scrollbar {
@@ -43,11 +72,11 @@
   }
 
   .btn-primary {
-    @apply bg-brand-red hover:bg-brand-redlight text-white font-display text-sm px-4 py-2 rounded-sm transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply bg-brand-red hover:bg-brand-redlight text-white font-display text-sm px-4 py-3 min-h-12 rounded-sm transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .btn-ghost {
-    @apply border border-brand-midgray text-gray-400 hover:text-white hover:border-gray-500 font-display text-sm px-4 py-2 rounded-sm transition-colors duration-200;
+    @apply border border-brand-midgray text-gray-400 hover:text-white hover:border-gray-500 font-display text-sm px-4 py-3 min-h-12 rounded-sm transition-colors duration-200;
   }
 
   .label {

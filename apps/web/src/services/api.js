@@ -2,10 +2,34 @@
 import axios from "axios";
 import { DEFAULT_API_CONTRACT } from "../config/apiContract";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
+
+const toSafePathSegment = (value) => encodeURIComponent(String(value ?? "").trim());
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "/api",
+  baseURL: API_BASE_URL,
   timeout: 60000,
   headers: { "Content-Type": "application/json" },
+});
+
+api.interceptors.request.use((config) => {
+  if (config.params) {
+    config.params = Object.fromEntries(
+      Object.entries(config.params)
+        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+        .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
+    );
+  }
+  if (config.data && typeof config.data === "object" && !(config.data instanceof FormData)) {
+    config.data = Object.fromEntries(
+      Object.entries(config.data).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value.trim() : value,
+      ]),
+    );
+  }
+  return config;
 });
 
 api.interceptors.response.use(
@@ -29,7 +53,7 @@ export const getPredictions = (
   });
 
 export const getPredictionById = (matchId) =>
-  api.get(`/predictions/${matchId}`);
+  api.get(`/predictions/${toSafePathSegment(matchId)}`);
 
 export const validateMatch = (homeTeam, awayTeam, sport, date) =>
   api.get("/predictions/validate", {
@@ -44,13 +68,13 @@ export const submitResult = (data) =>
 export const triggerLearning = () => api.post("/predictions/learn/trigger");
 
 export const deletePrediction = (matchId) =>
-  api.delete(`/predictions/${matchId}`);
+  api.delete(`/predictions/${toSafePathSegment(matchId)}`);
 export const restorePrediction = (matchId) =>
-  api.post(`/predictions/${matchId}/restore`);
+  api.post(`/predictions/${toSafePathSegment(matchId)}/restore`);
 export const repredictPrediction = (matchId) =>
-  api.post(`/predictions/${matchId}/repredict`);
+  api.post(`/predictions/${toSafePathSegment(matchId)}/repredict`);
 export const resolvePrediction = (matchId) =>
-  api.post(`/predictions/${matchId}/resolve`);
+  api.post(`/predictions/${toSafePathSegment(matchId)}/resolve`);
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
 export const getMetrics = (limit = 30) =>
@@ -61,7 +85,7 @@ export const getQuota = () => api.get("/metrics/quota");
 export const getConfidenceHistory = (days = 30) =>
   api.get("/metrics/confidence-history", { params: { days } });
 export const getPerformanceHistory = (days = 90) =>
-  api.get(`/metrics/performance-history?days=${days}`);
+  api.get("/metrics/performance-history", { params: { days } });
 export const getTeamAccuracy = (minResolved = 10, limit = 20, sport = "") =>
   api.get("/metrics/team-accuracy", {
     params: { min_resolved: minResolved, limit, sport: sport || undefined },
@@ -87,18 +111,18 @@ export const getPlatformReport = (limit = 100) =>
 export const sendChat = (data) => api.post("/chat/", data);
 
 export const getSessionHistory = (sessionId, limit = 50) =>
-  api.get(`/chat/session/${sessionId}/history`, { params: { limit } });
+  api.get(`/chat/session/${toSafePathSegment(sessionId)}/history`, { params: { limit } });
 
 export const createSession = () => api.post("/chat/session/new");
 
 export const getSessionSummary = (sessionId) =>
-  api.get(`/chat/session/${sessionId}/summary`);
+  api.get(`/chat/session/${toSafePathSegment(sessionId)}/summary`);
 
 export const deleteSession = (sessionId) =>
-  api.delete(`/chat/session/${sessionId}`);
+  api.delete(`/chat/session/${toSafePathSegment(sessionId)}`);
 
 export const restoreSession = (sessionId) =>
-  api.post(`/chat/session/${sessionId}/restore`);
+  api.post(`/chat/session/${toSafePathSegment(sessionId)}/restore`);
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
 export const getSchedulerStatus = () => api.get("/scheduler/status");
@@ -112,7 +136,7 @@ export const triggerResolution = () =>
 // ── Health ───────────────────────────────────────────────────────────────────
 export const healthCheck = () =>
   axios.get(
-    `${import.meta.env.VITE_API_URL?.replace(/\/api$/, "") || ""}/health`,
+    `${API_BASE_URL?.replace(/\/api$/, "") || APP_ORIGIN}/health`,
   );
 
 export default api;

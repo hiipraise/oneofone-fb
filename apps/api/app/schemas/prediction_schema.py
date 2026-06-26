@@ -1,7 +1,8 @@
 # app/schemas/prediction_schema.py
+import re
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum
 
 from app.config.api_contract import (
@@ -34,7 +35,30 @@ class PredictionRequest(BaseModel):
     @field_validator("home_team", "away_team")
     @classmethod
     def sanitize_team_name(cls, v: str) -> str:
-        return v.strip().replace("<", "").replace(">", "").replace("'", "")
+        cleaned = re.sub(r"[<>\x00-\x1f]", "", v).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if not cleaned:
+            raise ValueError("Team name cannot be empty")
+        return cleaned
+
+    @field_validator("league", "custom_prompt")
+    @classmethod
+    def sanitize_optional_text(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        cleaned = re.sub(r"[<>\x00-\x1f]", "", v).strip()
+        return cleaned or None
+
+    @field_validator("match_date")
+    @classmethod
+    def validate_match_date(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("match_date must use YYYY-MM-DD format") from exc
+        return v
 
 
 class PredictionOutput(BaseModel):
@@ -93,7 +117,11 @@ class ChatRequest(BaseModel):
     @field_validator("message")
     @classmethod
     def sanitize_message(cls, v: str) -> str:
-        return v.strip().replace("<script>", "").replace("</script>", "")
+        cleaned = re.sub(r"(?is)<\s*/?\s*script[^>]*>", "", v)
+        cleaned = re.sub(r"[<>\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned).strip()
+        if not cleaned:
+            raise ValueError("Message cannot be empty")
+        return cleaned
 
 
 class ChatResponse(BaseModel):
