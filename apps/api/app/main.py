@@ -11,6 +11,7 @@ from app.utils.timezone import WAT
 from fastapi import FastAPI
 from fastapi import Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config.settings import settings
 from app.config.database import connect_db, disconnect_db, get_db
@@ -54,16 +55,21 @@ app = FastAPI(
 )
 
 app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.ALLOWED_HOSTS,
+)
+
+app.add_middleware(
     CORSMiddleware,
     allow_origins     = settings.ALLOWED_ORIGINS,
     allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_methods     = ["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers     = ["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 
 @app.middleware("http")
-async def log_all_requests(request: Request, call_next):
+async def add_security_headers_and_log(request: Request, call_next):
     started = time.perf_counter()
     logger.info("HTTP start %s %s from=%s", request.method, request.url.path, request.client.host if request.client else "-")
     try:
@@ -72,6 +78,11 @@ async def log_all_requests(request: Request, call_next):
         logger.exception("HTTP unhandled %s %s", request.method, request.url.path)
         raise
     duration_ms = (time.perf_counter() - started) * 1000
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["X-Process-Time-ms"] = f"{duration_ms:.1f}"
     logger.info(
         "HTTP end %s %s status=%s duration_ms=%.1f",
         request.method,

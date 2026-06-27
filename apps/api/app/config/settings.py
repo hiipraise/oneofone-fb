@@ -1,4 +1,5 @@
 # app/config/settings.py
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
 
     # App
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "testserver"]
     SECRET_KEY: str = "change-this-in-production"
     DEBUG: bool = False
 
@@ -62,6 +64,13 @@ class Settings(BaseSettings):
     # Chat memory
     CHAT_HISTORY_LIMIT: int = 20
     CHAT_MEMORY_WINDOW: int = 8
+
+    @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def parse_csv_lists(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     class Config:
         env_file = ".env"
