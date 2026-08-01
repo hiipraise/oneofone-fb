@@ -22,9 +22,7 @@ from app.services import memory_service
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are the 1/1 Sports Analytics AI — a quantitative sports prediction system.
-
-Supported sports: Football/Soccer, Basketball.
+SYSTEM_PROMPT = """You are the 1/1 Football Analytics AI — a quantitative football/soccer prediction system.
 
 Core rules:
 - All probability outputs must be in [0, 1] format
@@ -34,13 +32,10 @@ Core rules:
 - Acknowledge data limitations clearly
 
 When presenting predictions:
-- Soccer: Home win / Draw / Away win probabilities
-- Basketball: Home win / Away win probabilities only (no draw market)
+- Home win / Draw / Away win probabilities
 - Model confidence score and interval
-- Relevant betting markets for the sport:
-    • Soccer: 1X2, double chance, draw no bet, goals O/U, BTTS, first-half 1X2, first-half BTTS, 10-minute 1X2, team totals, correct score, corners, team corners, cards, combo markets
-    • Provide one best pick per market when possible, based on the available data
-  • Basketball: points O/U, spread, moneyline
+- Relevant football markets: 1X2, double chance, draw no bet, goals O/U, BTTS, first-half 1X2, first-half BTTS, 10-minute 1X2, team totals, correct score, corners, team corners, cards, combo markets
+- Provide one best pick per market when possible, based on the available data
 
 Response style: concise, analytical, data-driven. No filler."""
 
@@ -93,12 +88,6 @@ _SPORT_KEYWORDS: Dict[str, List[str]] = {
         "soccer", "football", "premier league", "la liga", "champions league",
         "bundesliga", "serie a", "ligue 1", "mls", "eredivisie",
         "copa del rey", "fa cup", "goal", "striker", "goalkeeper", "penalty",
-    ],
-    "basketball": [
-        "basketball", "nba", "euroleague", "eurocup", "acb", "bbl", "gbl",
-        "lega a", "pro a", "betclic elite", "turkish super league",
-        "ncaa basketball", "wnba",
-        "points", "rebounds", "three-pointer", "slam dunk",
     ],
 }
 
@@ -269,10 +258,7 @@ async def process_chat(request) -> dict:
             search_context += (
                 f"\n\nPrediction: {parsed['home_team']} vs {parsed['away_team']} [{sport_str}]\n"
                 f"  Home={prediction_output.home_win_probability:.4f}  "
-                + (
-                    f"Draw={prediction_output.draw_probability:.4f}  "
-                    if sport_str == "soccer" else ""
-                )
+                + f"Draw={prediction_output.draw_probability:.4f}  "
                 + f"Away={prediction_output.away_win_probability:.4f}\n"
                 f"  Confidence: {prediction_output.confidence_score:.4f}  "
                 f"CI: [{prediction_output.confidence_interval_low:.3f}, "
@@ -287,9 +273,6 @@ async def process_chat(request) -> dict:
                 if markets.get("btts"):
                     b = markets["btts"]
                     search_context += f"  BTTS: Yes={b.get('yes')} No={b.get('no')}\n"
-            elif sport_str == "basketball" and markets.get("basketball"):
-                bm = markets["basketball"]
-                search_context += f"  Total pts: {bm.get('expected_total', 'N/A')}\n"
 
         except Exception as e:
             logger.error(f"Chat prediction error: {e}")

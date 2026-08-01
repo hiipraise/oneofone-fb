@@ -66,7 +66,6 @@ ESPN_SCOREBOARD_LEAGUES: Dict[str, List[tuple[str, str, str]]] = {
         ("soccer", "aus.1", "A-League Men"),
         ("soccer", "ksa.1", "Saudi Pro League"),
     ],
-    # Basketball support removed — platform is soccer-only
 }
 
 
@@ -295,10 +294,7 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
 
     now_wat_dt = now_wat()
     today = now_wat_dt.strftime("%Y-%m-%d")
-    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     allowed_dates = {today}
-    if sport == "basketball":
-        allowed_dates.add(tomorrow)
     fixtures: List[Dict] = []
     seen: set = set()
 
@@ -427,8 +423,7 @@ def _dynamic_sport_keys(sport: str) -> List[str]:
 
 def _sport_keywords(sport: str) -> List[str]:
     return {
-        "soccer":     ["soccer"],
-        "basketball": ["basketball"],
+        "soccer": ["soccer"],
     }.get(sport.lower(), [sport.lower()])
 
 
@@ -492,10 +487,7 @@ def fetch_espn_today_fixtures(sport: str = "soccer") -> List[Dict]:
 
     now_wat_dt = now_wat()
     today = now_wat_dt.strftime("%Y-%m-%d")
-    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     allowed_dates = {today}
-    if sport == "basketball":
-        allowed_dates.add(tomorrow)
     now_utc = datetime.now(timezone.utc)
     fixtures: List[Dict] = []
     seen: set[tuple[str, str, str]] = set()

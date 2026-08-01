@@ -111,11 +111,7 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
 
     now_wat_dt = datetime.now(WAT)
     today = now_wat_dt.strftime("%Y-%m-%d")
-    tomorrow = (now_wat_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     allowed_dates = {today}
-    if sport.lower() == "basketball":
-        # NBA fixtures in WAT frequently roll into the next calendar day after midnight.
-        allowed_dates.add(tomorrow)
 
     sport = sport.lower()
     if sport not in SPORT_KEYS:
