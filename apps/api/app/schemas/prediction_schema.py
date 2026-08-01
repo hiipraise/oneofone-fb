@@ -9,8 +9,6 @@ from app.config.api_contract import (
     TEAM_NAME_MIN_LENGTH,
     TEAM_NAME_MAX_LENGTH,
     CUSTOM_PROMPT_MAX_LENGTH,
-    CHAT_MESSAGE_MIN_LENGTH,
-    CHAT_MESSAGE_MAX_LENGTH,
 )
 
 
@@ -107,26 +105,3 @@ class ModelMetrics(BaseModel):
     accuracy: float
     total_predictions: int
     sport_breakdown: Optional[Dict[str, Any]] = None
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=CHAT_MESSAGE_MIN_LENGTH, max_length=CHAT_MESSAGE_MAX_LENGTH)
-    sport: Optional[SportType] = None
-    session_id: Optional[str] = None
-
-    @field_validator("message")
-    @classmethod
-    def sanitize_message(cls, v: str) -> str:
-        cleaned = re.sub(r"(?is)<\s*/?\s*script[^>]*>", "", v)
-        cleaned = re.sub(r"[<>\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned).strip()
-        if not cleaned:
-            raise ValueError("Message cannot be empty")
-        return cleaned
-
-
-class ChatResponse(BaseModel):
-    session_id: str
-    response: str
-    prediction: Optional[PredictionOutput] = None
-    sources: List[str] = []
-    timestamp: datetime

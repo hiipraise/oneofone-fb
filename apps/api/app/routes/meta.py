@@ -2,8 +2,6 @@
 from fastapi import APIRouter
 
 from app.config.api_contract import (
-    CHAT_MESSAGE_MAX_LENGTH,
-    CHAT_MESSAGE_MIN_LENGTH,
     CUSTOM_PROMPT_MAX_LENGTH,
     PREDICTIONS_LIMIT_DEFAULT,
     PREDICTIONS_LIMIT_MAX,
@@ -27,7 +25,6 @@ async def frontend_contract():
         "field_limits": {
             "team_name": {"min": TEAM_NAME_MIN_LENGTH, "max": TEAM_NAME_MAX_LENGTH},
             "custom_prompt": {"max": CUSTOM_PROMPT_MAX_LENGTH},
-            "chat_message": {"min": CHAT_MESSAGE_MIN_LENGTH, "max": CHAT_MESSAGE_MAX_LENGTH},
             "search_query": {"min": SEARCH_QUERY_MIN_LENGTH, "max": SEARCH_QUERY_MAX_LENGTH},
             "predictions_page_limit": {
                 "default": PREDICTIONS_LIMIT_DEFAULT,
@@ -49,7 +46,6 @@ async def frontend_contract():
             "list_predictions": "GET /api/predictions/",
             "validate_fixture": "GET /api/predictions/validate",
             "search_web": "GET /api/search/",
-            "chat": "POST /api/chat/",
             "health": "GET /health",
         },
     }

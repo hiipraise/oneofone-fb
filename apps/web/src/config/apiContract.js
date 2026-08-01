@@ -8,7 +8,6 @@ export const DEFAULT_API_CONTRACT = {
   field_limits: {
     team_name: { min: 1, max: 100 },
     custom_prompt: { max: 500 },
-    chat_message: { min: 1, max: 1000 },
     search_query: { min: 1, max: 200 },
     predictions_page_limit: { default: 50, max: 500 },
   },
@@ -27,7 +26,6 @@ export const DEFAULT_API_CONTRACT = {
     list_predictions: 'GET /api/predictions/',
     validate_fixture: 'GET /api/predictions/validate',
     search_web: 'GET /api/search/',
-    chat: 'POST /api/chat/',
     health: 'GET /health',
   },
 }
