@@ -80,12 +80,12 @@ _SOCCER_EXTRA = [
     "odds_form_interaction",
     "xg_home_prior", "xg_away_prior", "xg_total_prior",
 ]
-# Soccer-only platform (basketball support removed)
+# Soccer-only platform
 FEATURE_KEYS: Dict[str, List[str]] = {
     "soccer": _COMMON_FEATURES + _SOCCER_EXTRA,
 }
 
-# Soccer-only defaults (basketball normalised 0–1 internally removed)
+# Soccer-only defaults
 _DEFAULTS: Dict[str, float] = {
     "home_form_rating": 0.5, "away_form_rating": 0.5,
     "home_win_rate_signal": 0.5, "away_win_rate_signal": 0.5,
@@ -122,7 +122,7 @@ _RAW_STAT_KEYS = frozenset({
     "market_move_home", "market_move_away",
 })
 
-# Soccer-only prior weights (basketball branch removed)
+# Soccer-only prior weights
 _PRIOR: Dict[str, Dict[str, float]] = {
     "soccer": {
         "home_form_rating": 0.22, "away_form_rating": -0.18,
@@ -337,7 +337,7 @@ class PredictionEngine:
             f["xg_away_prior"] = xg_away
             f["xg_total_prior"] = xg_home + xg_away
 
-        # Basketball branch removed (soccer-only)
+        # Soccer-only features are normalized here.
 
         for k in list(f):
             f[k] = self._sanitize_value(k, f[k])
@@ -464,7 +464,7 @@ class PredictionEngine:
             score += interaction
         home_prob = float(np.clip(self._sigmoid(score), 0.06, 0.94))
 
-        # Soccer-only: basketball branch removed
+        # Soccer-only probability path.
         xg_home, xg_away = self._estimate_soccer_xg(features)
         xg_total = xg_home + xg_away
         strength_similarity = 1.0 - min(1.0, abs(home_prob - 0.5) * 2.0)

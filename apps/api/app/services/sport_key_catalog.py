@@ -20,5 +20,4 @@ SPORT_KEYS: Dict[str, List[str]] = {
         "soccer_mexico_ligamx",
         "soccer_conmebol_copa_libertadores",
     ],
-    # Basketball support removed — platform is soccer-only
 }
