@@ -1,5 +1,6 @@
 // src/charts/ConfidenceThresholdChart.jsx
 import React, { useEffect, useState } from "react";
+import api from "../services/api";
 
 /**
  * ConfidenceThresholdChart
@@ -22,14 +23,10 @@ export default function ConfidenceThresholdChart({ days = 90 }) {
     const loadData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(
-          `/api/metrics/confidence-thresholds?days=${days}`,
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch confidence threshold data");
-        }
-        const json = await response.json();
-        setData(json);
+        const response = await api.get("/metrics/confidence-thresholds", {
+          params: { days },
+        });
+        setData(response.data);
         setError(null);
       } catch (err) {
         setError(err.message);
