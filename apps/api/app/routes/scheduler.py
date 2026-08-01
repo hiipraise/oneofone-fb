@@ -205,7 +205,7 @@ async def get_scheduler_logs(
     """Recent scheduler log entries."""
     db = _require_db()
     logs: List[dict] = []
-    normalized_sport = sport.lower() if sport else None
+    normalized_sport = (sport or "soccer").lower()
     query = {"source": "daily_scheduler"}
     if normalized_sport:
         query["$or"] = [
@@ -213,6 +213,7 @@ async def get_scheduler_logs(
             {"sport": {"$exists": False}},
             {"sport": None},
         ]
+        query["message"] = {"$not": {"$regex": "basketball|nba", "$options": "i"}}
 
     async for doc in db.system_logs.find(
         query
