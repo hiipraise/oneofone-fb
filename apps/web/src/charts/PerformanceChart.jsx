@@ -22,7 +22,7 @@ function safeNumber(value) {
 }
 
 export default function PerformanceChart() {
-  const { data: performanceHistory, loading } = usePerformanceHistory(30)
+  const { data: performanceHistory, loading, error } = usePerformanceHistory(30)
 
   const { labels, brierData, logLossData, accuracyData } = useMemo(() => {
     const sorted = [...performanceHistory]
@@ -45,10 +45,22 @@ export default function PerformanceChart() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="card p-6 flex flex-col items-center justify-center text-center border border-brand-red" style={{ height: 260 }}>
+        <p className="font-display text-brand-redlight text-sm">PERFORMANCE DATA UNAVAILABLE</p>
+        <p className="font-body text-xs text-gray-600 mt-2">{error}</p>
+      </div>
+    )
+  }
+
   if (!performanceHistory.length) {
     return (
-      <div className="card p-6 flex items-center justify-center" style={{ height: 260 }}>
-        <p className="font-display text-gray-600 text-sm">NO PERFORMANCE DATA YET</p>
+      <div className="card p-6 flex flex-col items-center justify-center text-center" style={{ height: 260 }}>
+        <p className="font-display text-gray-500 text-sm">NO SCORED FOOTBALL PERFORMANCE YET</p>
+        <p className="font-body text-xs text-gray-700 mt-2 max-w-sm">
+          Add final scores for soccer predictions to unlock rolling Brier score, log loss, and accuracy.
+        </p>
       </div>
     )
   }

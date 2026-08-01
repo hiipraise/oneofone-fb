@@ -99,13 +99,16 @@ export function useMetricsHistory(limit = 30) {
 export function usePerformanceHistory(days = 90) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const fetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await getPerformanceHistory(days);
       setData(Array.isArray(res.data) ? res.data : []);
-    } catch {
+    } catch (e) {
+      setError(e.response?.data?.detail || e.message);
       setData([]);
     } finally {
       setLoading(false);
@@ -116,7 +119,7 @@ export function usePerformanceHistory(days = 90) {
     fetch();
   }, [fetch]);
 
-  return { data, loading, refetch: fetch };
+  return { data, loading, error, refetch: fetch };
 }
 
 export function useConfidenceHistory(days = 30) {

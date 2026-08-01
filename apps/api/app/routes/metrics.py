@@ -77,7 +77,7 @@ def _finalize_market_accuracy(stats: dict) -> dict:
 async def get_metrics(limit: int = Query(30, ge=1, le=200)):
     db = get_db()
     results = []
-    async for doc in db.model_metrics.find({}).sort("date", -1).limit(limit):
+    async for doc in db.model_metrics.find({"sport": METRIC_SPORT}).sort("date", -1).limit(limit):
         doc.pop("_id", None)
         results.append(doc)
     return results
@@ -86,7 +86,7 @@ async def get_metrics(limit: int = Query(30, ge=1, le=200)):
 @router.get("/latest")
 async def get_latest_metrics():
     db = get_db()
-    doc = await db.model_metrics.find_one({}, sort=[("date", -1)])
+    doc = await db.model_metrics.find_one({"sport": METRIC_SPORT}, sort=[("date", -1)])
     if doc:
         doc.pop("_id", None)
     return doc or {}
@@ -101,7 +101,7 @@ async def get_metrics_summary():
 
     actual_results: dict[str, dict] = {}
     total_resolved_raw = 0
-    async for doc in db.actual_results.find({}):
+    async for doc in db.actual_results.find({"sport": {"$in": [METRIC_SPORT, None]}}):
         total_resolved_raw += 1
         actual_results[doc["match_id"]] = doc
 
@@ -186,7 +186,7 @@ async def get_metrics_summary():
         if weighted_metric_weights.get(key)
     }
 
-    total_preds = await db.predictions.count_documents({})
+    total_preds = await db.predictions.count_documents({"sport": METRIC_SPORT, "deleted_at": None})
     total_resolved_scored = sum(len(v) for v in records_by_sport.values())
 
     n_training = {
@@ -268,7 +268,7 @@ async def get_team_accuracy(
     db = get_db()
 
     actual_results: dict[str, dict] = {}
-    async for doc in db.actual_results.find({}):
+    async for doc in db.actual_results.find({"sport": {"$in": [METRIC_SPORT, None]}}):
         actual_results[doc["match_id"]] = doc
 
     if not actual_results:
@@ -355,7 +355,7 @@ async def get_performance_history(days: int = Query(90, ge=7, le=365)):
 
     # Load all actual results into memory (typically small collection)
     actual_results: dict[str, str] = {}
-    async for doc in db.actual_results.find({}):
+    async for doc in db.actual_results.find({"sport": {"$in": [METRIC_SPORT, None]}}):
         actual_results[doc["match_id"]] = doc.get("actual_outcome")
 
     if not actual_results:
@@ -500,7 +500,7 @@ async def get_market_accuracy(days: int = Query(90, ge=7, le=365)):
     
     # Fetch recent actual results (bounded by cutoff) to avoid scanning entire collection
     actual_results_raw: dict[str, dict] = {}
-    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}}):
+    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}, "sport": {"$in": [METRIC_SPORT, None]}}):
         actual_results_raw[doc["match_id"]] = {
             "actual_outcome": doc.get("actual_outcome"),
             "home_score": doc.get("home_score"),
@@ -582,7 +582,7 @@ async def get_confidence_thresholds(days: int = Query(90, ge=7, le=365)):
     
     # Fetch recent actual results (bounded by cutoff) including corner stats
     actual_results_raw: dict[str, dict] = {}
-    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}}):
+    async for doc in db.actual_results.find({"match_date": {"$gte": cutoff}, "sport": {"$in": [METRIC_SPORT, None]}}):
         actual_results_raw[doc["match_id"]] = {
             "actual_outcome": doc.get("actual_outcome"),
             "home_score": doc.get("home_score"),

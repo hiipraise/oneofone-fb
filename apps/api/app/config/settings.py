@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     SERPAPI_KEY:    str = ""   # kept for backward compat; no longer used
     GROQ_API_KEY:   str = ""
     ODDS_API_KEY:   str = ""
-    RAPID_API_KEY:  str = ""   # used for API-Football + API-NBA structured data
+    RAPID_API_KEY:  str = ""   # used for API-Football structured data
 
     # App
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]

@@ -103,27 +103,6 @@ export const getTeamInfo = (team, sport) =>
 // ── API contract ─────────────────────────────────────────────────────────────
 export const getFrontendContract = () => api.get("/meta/frontend");
 
-// ── Reports ──────────────────────────────────────────────────────────────────
-export const getPlatformReport = (limit = 100) =>
-  api.get("/reports/summary", { params: { limit } });
-
-// ── Chat ─────────────────────────────────────────────────────────────────────
-export const sendChat = (data) => api.post("/chat/", data);
-
-export const getSessionHistory = (sessionId, limit = 50) =>
-  api.get(`/chat/session/${toSafePathSegment(sessionId)}/history`, { params: { limit } });
-
-export const createSession = () => api.post("/chat/session/new");
-
-export const getSessionSummary = (sessionId) =>
-  api.get(`/chat/session/${toSafePathSegment(sessionId)}/summary`);
-
-export const deleteSession = (sessionId) =>
-  api.delete(`/chat/session/${toSafePathSegment(sessionId)}`);
-
-export const restoreSession = (sessionId) =>
-  api.post(`/chat/session/${toSafePathSegment(sessionId)}/restore`);
-
 // ── Scheduler ────────────────────────────────────────────────────────────────
 export const getSchedulerStatus = () => api.get("/scheduler/status");
 export const triggerScheduler = () => api.post("/scheduler/trigger");

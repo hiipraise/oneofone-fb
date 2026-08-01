@@ -433,7 +433,7 @@ _SOCCER_ESPN_LEAGUES = (
     "uefa.champions", "uefa.europa", "usa.1", "por.1", "ned.1",
     "arg.1", "bra.1", "tur.1", "mex.1", "ksa.1",
 )
-# Basketball support removed — platform is soccer-only
+# Platform is soccer-only
 
 
 def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
@@ -526,7 +526,6 @@ def _espn_team_record(team_name: str, sport: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 RAPIDAPI_HOST_FOOTBALL = "api-football-v1.p.rapidapi.com"
-RAPIDAPI_HOST_NBA      = "api-nba-v1.p.rapidapi.com"
 
 
 def _rapidapi_headers() -> Dict[str, str]:
@@ -538,7 +537,7 @@ def _rapidapi_headers() -> Dict[str, str]:
 
 def _fetch_rapidapi_team_stats(team_name: str, sport: str) -> Optional[Dict[str, Any]]:
     """
-    Pull structured stats from RapidAPI (API-Football / API-NBA).
+    Pull structured stats from RapidAPI API-Football.
     Zero search queries consumed — uses your existing RAPID_API_KEY.
     Returns None if unavailable so callers fall back to search.
     """
@@ -676,7 +675,7 @@ def _parse_combined_text(text: str, team_name: str, sport: str) -> Dict[str, Any
         out["goals_conceded_avg"] = round(float(conceded or 1.20), 2)
         out["clean_sheet_rate"]   = round(float((cs_rate or 28.0) / 100.0), 3)
 
-    # Basketball branch removed — platform is soccer-only
+    # Platform is soccer-only.
 
 
     return out
@@ -853,7 +852,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
             "goals_conceded_avg", combined.get("goals_conceded_avg",  1.20))
         stats["clean_sheet_rate"]   = combined.get("clean_sheet_rate", 0.28)
 
-    # Basketball-specific stats removed — platform is soccer-only
+    # Platform is soccer-only.
 
 
     # Override win_rate from RapidAPI if available (more accurate than scraped)

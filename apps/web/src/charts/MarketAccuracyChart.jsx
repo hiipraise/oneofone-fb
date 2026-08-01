@@ -1,5 +1,6 @@
 // src/charts/MarketAccuracyChart.jsx
 import React, { useEffect, useState } from "react";
+import api from "../services/api";
 
 /**
  * MarketAccuracyChart
@@ -18,14 +19,10 @@ export default function MarketAccuracyChart({ days = 90 }) {
     const loadData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(
-          `/api/metrics/market-accuracy?days=${days}`,
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch market accuracy data");
-        }
-        const json = await response.json();
-        setData(json);
+        const response = await api.get("/metrics/market-accuracy", {
+          params: { days },
+        });
+        setData(response.data);
         setError(null);
       } catch (err) {
         setError(err.message);

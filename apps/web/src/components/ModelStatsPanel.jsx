@@ -200,6 +200,7 @@ export default function ModelStatsPanel({ summary, loading }) {
       ? displaySports.reduce((s, sp) => s + (mlWeights[sp] || 0), 0) /
         displaySports.length
       : null;
+  const avgConfidence = summary.sport_breakdown?.soccer?.avg_confidence ?? null;
 
   // How many sports are still below threshold?
   const sportsBelowThreshold = displaySports.filter(
@@ -246,7 +247,19 @@ export default function ModelStatsPanel({ summary, loading }) {
         <StatBlock
           label="PREDICTIONS"
           value={(summary.total_predictions ?? 0).toLocaleString()}
-          sub="All time"
+          sub="Football only"
+        />
+        <StatBlock
+          label="AVG CONFIDENCE"
+          value={fmtPct(avgConfidence)}
+          sub={avgConfidence == null ? "Resolve predictions to score confidence" : "Resolved football picks"}
+          colorClass={
+            avgConfidence == null
+              ? "text-gray-500"
+              : avgConfidence >= 0.65
+                ? "text-brand-greenlight"
+                : "text-yellow-500"
+          }
         />
         <StatBlock
           label="RESOLVED (SCORED)"
