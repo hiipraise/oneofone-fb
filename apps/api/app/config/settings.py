@@ -18,7 +18,12 @@ class Settings(BaseSettings):
 
     # App
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
-    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1", "testserver"]
+    # Defaults to accepting any Host header so containerized/public deployments do
+    # not fail every request with Starlette TrustedHostMiddleware 400s when the
+    # platform injects its own domain/IP. Set this env var to a comma-separated
+    # allowlist (for example: "api.example.com,localhost,127.0.0.1") to enforce
+    # strict host validation in production.
+    ALLOWED_HOSTS: List[str] = ["*"]
     SECRET_KEY: str = "change-this-in-production"
     DEBUG: bool = False
 
