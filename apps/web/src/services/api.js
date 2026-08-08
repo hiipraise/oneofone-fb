@@ -4,6 +4,8 @@ import { DEFAULT_API_CONTRACT } from "../config/apiContract";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
+const SCHEDULER_ADMIN_KEY = import.meta.env.VITE_SCHEDULER_ADMIN_KEY || "";
+const schedulerAuth = () => SCHEDULER_ADMIN_KEY ? { headers: { "X-Scheduler-Key": SCHEDULER_ADMIN_KEY } } : undefined;
 
 const toSafePathSegment = (value) => encodeURIComponent(String(value ?? "").trim());
 
@@ -105,7 +107,9 @@ export const getFrontendContract = () => api.get("/meta/frontend");
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
 export const getSchedulerStatus = () => api.get("/scheduler/status");
-export const triggerScheduler = () => api.post("/scheduler/trigger");
+export const triggerScheduler = () => api.post("/scheduler/trigger", undefined, schedulerAuth());
+export const enableScheduler = () => api.post("/scheduler/enable", undefined, schedulerAuth());
+export const disableScheduler = () => api.post("/scheduler/disable", undefined, schedulerAuth());
 export const getSchedulerLogs = (limit = 50) =>
   api.get("/scheduler/logs", { params: { limit } });
 export const getTodayFixtures = () => api.get("/scheduler/fixtures/today");

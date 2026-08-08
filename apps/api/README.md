@@ -136,7 +136,6 @@ Frontend: http://localhost:5173
 | SERPAPI_KEY | Legacy alias (backward compatible; ignored by search runtime) | Optional |
 | ANTHROPIC_API_KEY | Claude API for AI chat | Recommended |
 | ODDS_API_KEY | The Odds API for betting odds | Optional |
-| RAPID_API_KEY | RapidAPI for fixture data | Optional |
 
 The system functions without API keys using DuckDuckGo scraping and statistical prior-based prediction.
 
@@ -199,7 +198,7 @@ Naming note: the primary service entry points are now `search_web` and `get_serp
 ## Daily Automation
 
 APScheduler runs at 06:00 WAT daily:
-- Fetches today's upcoming fixtures (API-Football via RapidAPI if configured)
+- Fetches today's upcoming fixtures (ESPN/Odds API fixtures if configured)
 - Runs prediction pipeline for each fixture
 - Saves all predictions to MongoDB
 - Logs execution status

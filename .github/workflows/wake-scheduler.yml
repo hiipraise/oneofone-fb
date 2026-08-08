@@ -1,0 +1,20 @@
+name: Wake Render scheduler
+
+on:
+  schedule:
+    # Keep these cron times in sync with apps/api/app/config/settings.py.
+    # Defaults: daily predictions 06:00 WAT => 04:58 UTC wake; result resolution 23:00 WAT => 21:58 UTC wake.
+    - cron: "58 4 * * *"
+    - cron: "58 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake scheduler endpoint once
+        env:
+          RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
+        run: |
+          test -n "$RENDER_APP_URL"
+          curl --fail --silent --show-error --max-time 20 "$RENDER_APP_URL/api/scheduler/ping"

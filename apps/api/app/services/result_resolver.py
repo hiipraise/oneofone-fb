@@ -443,13 +443,6 @@ def _fetch_espn_corner_stats(sport_path: str, league: str, fixture_id: str, home
         return None
 
 
-def _rapidapi_headers() -> Dict[str, str]:
-    return {
-        "X-RapidAPI-Key": settings.RAPID_API_KEY,
-        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
-    }
-
-
 def _safe_int(value) -> Optional[int]:
     try:
         if value is None:
@@ -465,93 +458,7 @@ def _safe_int(value) -> Optional[int]:
 
 
 def _fetch_corner_stats(home_team: str, away_team: str, match_date: str) -> Optional[Dict[str, int | str]]:
-    if not settings.RAPID_API_KEY:
-        return None
-
-    try:
-        home_resp = requests.get(
-            "https://api-football-v1.p.rapidapi.com/v3/teams",
-            headers=_rapidapi_headers(),
-            params={"search": home_team},
-            timeout=8,
-        )
-        away_resp = requests.get(
-            "https://api-football-v1.p.rapidapi.com/v3/teams",
-            headers=_rapidapi_headers(),
-            params={"search": away_team},
-            timeout=8,
-        )
-        if home_resp.status_code != 200 or away_resp.status_code != 200:
-            return None
-
-        home_ids = [
-            item.get("team", {}).get("id")
-            for item in home_resp.json().get("response", [])
-            if item.get("team", {}).get("id")
-        ]
-        away_names = {
-            item.get("team", {}).get("name", "").lower()
-            for item in away_resp.json().get("response", [])
-            if item.get("team", {}).get("name")
-        }
-
-        for team_id in home_ids[:3]:
-            fixtures_resp = requests.get(
-                "https://api-football-v1.p.rapidapi.com/v3/fixtures",
-                headers=_rapidapi_headers(),
-                params={"date": match_date, "team": team_id},
-                timeout=8,
-            )
-            if fixtures_resp.status_code != 200:
-                continue
-
-            for fixture in fixtures_resp.json().get("response", []):
-                teams = fixture.get("teams", {})
-                fixture_home = (teams.get("home", {}) or {}).get("name", "").lower()
-                fixture_away = (teams.get("away", {}) or {}).get("name", "").lower()
-                if not fixture_home or not fixture_away:
-                    continue
-                if away_names and fixture_away not in away_names:
-                    continue
-
-                fixture_id = fixture.get("fixture", {}).get("id")
-                if not fixture_id:
-                    continue
-
-                stats_resp = requests.get(
-                    "https://api-football-v1.p.rapidapi.com/v3/fixtures/statistics",
-                    headers=_rapidapi_headers(),
-                    params={"fixture": fixture_id},
-                    timeout=8,
-                )
-                if stats_resp.status_code != 200:
-                    continue
-
-                home_corners = None
-                away_corners = None
-                for entry in stats_resp.json().get("response", []):
-                    team_name = (entry.get("team", {}) or {}).get("name", "").lower()
-                    stats = {item.get("type"): item.get("value") for item in entry.get("statistics", [])}
-                    corners = _safe_int(stats.get("Corner Kicks") or stats.get("corners"))
-                    if corners is None:
-                        continue
-                    if team_name == fixture_home:
-                        home_corners = corners
-                    elif team_name == fixture_away:
-                        away_corners = corners
-
-                if home_corners is None or away_corners is None:
-                    continue
-
-                return {
-                    "home_corners": home_corners,
-                    "away_corners": away_corners,
-                    "total_corners": home_corners + away_corners,
-                    "source": "rapidapi_fixture_statistics",
-                }
-    except Exception as e:
-        logger.debug(f"[resolver] RapidAPI corner fetch failed: {e}")
-
+    """Paid RapidAPI corner enrichment was removed; callers use ESPN/free source fallbacks only."""
     return None
 
 

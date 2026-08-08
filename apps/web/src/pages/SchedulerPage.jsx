@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import PaginationControls from "../components/PaginationControls";
-import { triggerResolution } from "../services/api";
+import { disableScheduler, enableScheduler, triggerResolution, triggerScheduler } from "../services/api";
 import { formatWatDateTime, watTodayISO } from "../utils/wat";
 
 const SPORTS = ["soccer"];
@@ -627,6 +627,7 @@ export default function SchedulerPage() {
   const [resolving, setResolving] = useState(false);
   const [resolveMsg, setResolveMsg] = useState(null);
   const [selectedDate, setSelectedDate] = useState(defaultDate);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -678,11 +679,33 @@ export default function SchedulerPage() {
     return () => clearInterval(id);
   }, [loadStatus, loadFixtures, loadLogs]);
 
+
+  const handleToggleEnabled = async () => {
+    setTogglingEnabled(true);
+    setTrigMsg(null);
+    try {
+      const currentlyEnabled = status?.scheduler_enabled !== false;
+      await (currentlyEnabled ? disableScheduler() : enableScheduler());
+      await loadStatus();
+      setTrigMsg({
+        type: "success",
+        text: currentlyEnabled ? "Scheduler disabled and jobs paused." : "Scheduler enabled and jobs resumed.",
+      });
+    } catch (e) {
+      setTrigMsg({
+        type: "error",
+        text: e.response?.data?.detail || "Scheduler toggle failed",
+      });
+    } finally {
+      setTogglingEnabled(false);
+    }
+  };
+
   const handleTrigger = async () => {
     setTriggering(true);
     setTrigMsg(null);
     try {
-      const res = await api.post("/scheduler/trigger");
+      const res = await triggerScheduler();
       setTrigMsg({
         type: "success",
         text: res.data.message || "Scheduler triggered.",
@@ -756,6 +779,22 @@ export default function SchedulerPage() {
             className="btn-ghost text-xs"
           >
             ↺ REFRESH
+          </button>
+
+          <button
+            onClick={handleToggleEnabled}
+            disabled={togglingEnabled || !status?.scheduler_running}
+            className={`text-xs px-3 py-2 rounded-sm border font-display ${
+              status?.scheduler_enabled === false
+                ? "border-brand-red text-brand-redlight bg-brand-reddark"
+                : "border-brand-green text-brand-greenlight bg-brand-greendark"
+            }`}
+          >
+            {togglingEnabled
+              ? "UPDATING..."
+              : status?.scheduler_enabled === false
+                ? "ENABLE JOBS"
+                : "DISABLE JOBS"}
           </button>
           <button
             onClick={handleResolve}
@@ -852,7 +891,11 @@ export default function SchedulerPage() {
                 <span
                   className={`font-display text-sm ${status?.scheduler_running ? "text-brand-greenlight" : "text-brand-redlight"}`}
                 >
-                  {status?.scheduler_running ? "ONLINE" : "OFFLINE"}
+                  {status?.scheduler_running
+                    ? status?.scheduler_enabled === false
+                      ? "PAUSED"
+                      : "ONLINE"
+                    : "OFFLINE"}
                 </span>
               </div>
             </div>
@@ -1034,7 +1077,7 @@ export default function SchedulerPage() {
                   Serper.dev — search (2,400/mo)
                 </p>
                 <p className="font-display text-xs text-gray-400">
-                  RapidAPI — structured stats
+                  ESPN/free sources — structured stats
                 </p>
               </div>
             </div>

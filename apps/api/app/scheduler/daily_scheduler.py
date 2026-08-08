@@ -286,8 +286,20 @@ async def _run_predictions_async() -> None:
             sport_generated = 0
             sport_errors    = 0
 
+            db = get_db()
             for fixture in fixtures:
                 try:
+                    # Idempotency: scheduled and manual runs can overlap on Render wakeups;
+                    # keep the first non-deleted prediction for a match/date/sport and skip duplicates.
+                    existing = await db.predictions.find_one({
+                        "match_id": fixture.get("match_id"),
+                        "match_date": fixture["match_date"],
+                        "sport": sport,
+                        "deleted_at": None,
+                    }) if db is not None and fixture.get("match_id") else None
+                    if existing:
+                        await _log_to_db("INFO", f"Skipping existing prediction: {fixture['home_team']} vs {fixture['away_team']}", sport=sport)
+                        continue
                     await generate_prediction(
                         home_team  = fixture["home_team"],
                         away_team  = fixture["away_team"],
