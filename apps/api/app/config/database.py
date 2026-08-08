@@ -82,6 +82,8 @@ async def create_indexes():
     await active_db.actual_results.create_index([("match_id", ASCENDING)], unique=True)
     await active_db.actual_results.create_index([("recorded_at", DESCENDING)])
     await active_db.actual_results.create_index([("match_date", ASCENDING)])
+    await active_db.actual_results.create_index([("sport", ASCENDING)])
+    await active_db.predictions.create_index([("sport", ASCENDING), ("match_date", ASCENDING), ("deleted_at", ASCENDING)])
 
     # model_metrics: dashboard endpoints sort by date and may filter by model_version.
     await active_db.model_metrics.create_index([("date", DESCENDING)])
@@ -92,6 +94,7 @@ async def create_indexes():
 
     await active_db.system_logs.create_index([("timestamp", DESCENDING)])
     await active_db.system_logs.create_index([("level", ASCENDING)])
+    await active_db.scheduler_settings.create_index([("enabled", ASCENDING)])
 
     await active_db.external_api_cache.create_index([("key", ASCENDING)], unique=True)
     await active_db.external_api_cache.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)

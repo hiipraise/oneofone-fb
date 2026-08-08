@@ -8,15 +8,47 @@ from app.utils.timezone import WAT
 from typing import List, Optional
 
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config.database import get_db
+from app.config.settings import settings
 from app.scheduler.daily_scheduler import scheduler, run_daily_predictions, _SUPPORTED_SPORTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+
+SCHEDULER_SETTINGS_ID = "singleton"
+SCHEDULER_JOB_IDS = ("daily_predictions", "result_resolution")
+
+def _require_scheduler_key(x_scheduler_key: Optional[str] = Header(None)) -> None:
+    if not settings.SCHEDULER_ADMIN_KEY:
+        raise HTTPException(status_code=503, detail="Scheduler admin key is not configured")
+    if x_scheduler_key != settings.SCHEDULER_ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Invalid scheduler key")
+
+async def _scheduler_enabled(db) -> bool:
+    doc = await db.scheduler_settings.find_one({"_id": SCHEDULER_SETTINGS_ID})
+    if doc is None:
+        await db.scheduler_settings.update_one(
+            {"_id": SCHEDULER_SETTINGS_ID},
+            {"$setOnInsert": {"enabled": True, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return True
+    return bool(doc.get("enabled", True))
+
+def _set_jobs_paused(enabled: bool) -> None:
+    for job_id in SCHEDULER_JOB_IDS:
+        try:
+            if enabled:
+                scheduler.resume_job(job_id)
+            else:
+                scheduler.pause_job(job_id)
+        except Exception as exc:
+            logger.warning("Could not %s scheduler job %s: %s", "resume" if enabled else "pause", job_id, exc)
 
 def _normalize_timestamp_iso(value) -> Optional[str]:
     """Return timestamps as ISO-8601 strings (or None when absent)."""
@@ -139,6 +171,7 @@ async def get_scheduler_status():
 
     next_resolution = _next_resolution_iso(scheduler)
     is_running = scheduler.running
+    scheduler_enabled = await _scheduler_enabled(db)
 
     last_log = await db.system_logs.find_one(
         {"source": "daily_scheduler"},
@@ -168,6 +201,7 @@ async def get_scheduler_status():
 
     return {
         "scheduler_running": is_running,
+        "scheduler_enabled": scheduler_enabled,
         "next_run": next_run,
         "next_resolution": next_resolution,
         "last_run": last_log,
@@ -180,8 +214,31 @@ async def get_scheduler_status():
     }
 
 
+@router.get("/ping")
+async def ping_scheduler():
+    db = _require_db()
+    enabled = await _scheduler_enabled(db)
+    return {"status": "ok", "scheduler_enabled": enabled, "timestamp": datetime.now(WAT).isoformat()}
+
+@router.post("/enable")
+async def enable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+    _require_scheduler_key(x_scheduler_key)
+    db = _require_db()
+    await db.scheduler_settings.update_one({"_id": SCHEDULER_SETTINGS_ID}, {"$set": {"enabled": True, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+    _set_jobs_paused(True)
+    return {"scheduler_enabled": True}
+
+@router.post("/disable")
+async def disable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+    _require_scheduler_key(x_scheduler_key)
+    db = _require_db()
+    await db.scheduler_settings.update_one({"_id": SCHEDULER_SETTINGS_ID}, {"$set": {"enabled": False, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+    _set_jobs_paused(False)
+    return {"scheduler_enabled": False}
+
 @router.post("/trigger")
-async def trigger_scheduler():
+async def trigger_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+    _require_scheduler_key(x_scheduler_key)
     """Manually fire the daily prediction job (runs in background thread)."""
     if not scheduler.running:
         raise HTTPException(status_code=503, detail="Scheduler is not running")

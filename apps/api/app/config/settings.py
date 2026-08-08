@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     SERPAPI_KEY:    str = ""   # kept for backward compat; no longer used
     GROQ_API_KEY:   str = ""
     ODDS_API_KEY:   str = ""
-    RAPID_API_KEY:  str = ""   # used for API-Football structured data
 
     # App
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
@@ -32,6 +31,8 @@ class Settings(BaseSettings):
     DAILY_PREDICTION_MINUTE: int = 0
     RESULT_RESOLUTION_HOUR:   int = 23
     RESULT_RESOLUTION_MINUTE: int = 0
+    SCHEDULER_ADMIN_KEY: str = ""
+    RENDER_APP_URL: str = ""
 
     # ML
     # Must match persisted artifacts in apps/api/models/ (currently v5.0.0).

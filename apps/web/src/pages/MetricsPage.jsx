@@ -174,7 +174,7 @@ function QuotaPanel({ quota, loading }) {
           >
             {pct >= 90
               ? "Serper.dev budget nearly exhausted. DuckDuckGo fallback is now active for all searches."
-              : "Budget running low. RapidAPI structured data will reduce search consumption automatically."}
+              : "Budget running low. Search budget is running low; cached free sources will be reused aggressively."}
           </p>
         </div>
       )}

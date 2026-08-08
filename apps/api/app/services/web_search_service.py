@@ -522,100 +522,8 @@ def _espn_team_record(team_name: str, sport: str) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RapidAPI sports data  (structured — zero search queries consumed)
+# Structured paid sports providers removed. Free ESPN/search/scraping providers remain.
 # ─────────────────────────────────────────────────────────────────────────────
-
-RAPIDAPI_HOST_FOOTBALL = "api-football-v1.p.rapidapi.com"
-
-
-def _rapidapi_headers() -> Dict[str, str]:
-    return {
-        "X-RapidAPI-Key":  settings.RAPID_API_KEY,
-        "X-RapidAPI-Host": RAPIDAPI_HOST_FOOTBALL,
-    }
-
-
-def _fetch_rapidapi_team_stats(team_name: str, sport: str) -> Optional[Dict[str, Any]]:
-    """
-    Pull structured stats from RapidAPI API-Football.
-    Zero search queries consumed — uses your existing RAPID_API_KEY.
-    Returns None if unavailable so callers fall back to search.
-    """
-    if not settings.RAPID_API_KEY:
-        return None
-
-    ck = _cache_key("rapidapi_stats_v1", {"t": team_name.lower(), "s": sport})
-    cached = _get_cached(ck)
-    if cached is not None:
-        return cached
-
-    try:
-        if sport == "soccer":
-            # Search for team ID
-            resp = requests.get(
-                "https://api-football-v1.p.rapidapi.com/v3/teams",
-                headers=_rapidapi_headers(),
-                params={"search": team_name},
-                timeout=8,
-            )
-            if resp.status_code != 200:
-                return None
-            teams = resp.json().get("response", [])
-            if not teams:
-                return None
-
-            team_id = teams[0]["team"]["id"]
-            # Get current season stats — use current year
-            season = now_wat().year
-            resp2 = requests.get(
-                "https://api-football-v1.p.rapidapi.com/v3/teams/statistics",
-                headers=_rapidapi_headers(),
-                params={"team": team_id, "season": season, "league": 39},  # EPL default
-                timeout=8,
-            )
-            if resp2.status_code != 200:
-                return None
-
-            s = resp2.json().get("response", {})
-            goals_for     = s.get("goals", {}).get("for",     {}).get("average", {}).get("total")
-            goals_against = s.get("goals", {}).get("against", {}).get("average", {}).get("total")
-            fixtures      = s.get("fixtures", {})
-            played = fixtures.get("played", {}).get("total", 0)
-            wins   = fixtures.get("wins",   {}).get("total", 0)
-
-            result: Dict[str, Any] = {}
-            if goals_for:
-                result["goals_scored_avg"] = round(float(goals_for), 2)
-            if goals_against:
-                result["goals_conceded_avg"] = round(float(goals_against), 2)
-            if played:
-                result["win_rate_signal"] = round(float(wins / played), 4)
-                result["espn_win_pct"]    = result["win_rate_signal"]
-
-            _set_cache(ck, result, ttl=CACHE_TTL_MEDIUM)
-            return result or None
-
-        # Non-soccer RapidAPI paths removed — platform is soccer-only
-
-    except Exception as e:
-        logger.debug(f"RapidAPI stats [{team_name} / {sport}]: {e}")
-
-    return None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COMBINED search team query — 1 call covers form + injuries + sport stats
-# ─────────────────────────────────────────────────────────────────────────────
-
-_WIN_PATTERNS  = re.compile(r"\b(won|beat|defeated|victory|wins|win)\b")
-_LOSS_PATTERNS = re.compile(r"\b(lost|defeat|loses|loss|beaten)\b")
-_DRAW_PATTERNS = re.compile(r"\b(draw|drew|tied|nil-nil|goalless)\b")
-_INJURY_KWS    = frozenset([
-    "out", "injured", "injury", "suspended", "doubtful", "illness",
-    "unavailable", "ruled out", "miss", "sidelined", "fitness doubt",
-])
-_HIGH_IMPACT   = frozenset(["star", "captain", "key player", "best scorer", "main striker"])
-
 
 def _fetch_combined_team_data(team_name: str, sport: str) -> Dict[str, Any]:
     """Single search call covering form, injuries, and sport-specific stats."""
@@ -732,7 +640,7 @@ def _fetch_combined_h2h_venue(home_team: str, away_team: str, sport: str) -> Dic
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public API: form, stats, injuries  (ESPN → RapidAPI → search fallback)
+# Public API: form, stats, injuries  (ESPN → search fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def fetch_recent_form(team_name: str, sport: str, num_games: int = 5) -> Dict[str, Any]:
@@ -821,7 +729,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
     Priority:
       1. Cache (free)
       2. ESPN API (free, structured)
-      3. RapidAPI (free tier, structured — consumes 0 search quota)
+      3. Free search/scraping fallbacks
       4. Combined search query (Serper.dev → DuckDuckGo fallback)
     """
     ck = _cache_key("team_stats_v3", {"t": team_name.lower(), "s": sport})
@@ -830,9 +738,6 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
         return cached
 
     sport = _coerce_sport_to_supported(sport)
-    # Try RapidAPI for structured sport stats before burning search quota
-    rapid_stats = _fetch_rapidapi_team_stats(team_name, sport) or {}
-
     combined  = _fetch_combined_team_data(team_name, sport)
     form_data = fetch_recent_form(team_name, sport)
 
@@ -844,21 +749,12 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
         "estimated_squad_impact": combined.get("estimated_squad_impact", 0.0),
     }
 
-    # RapidAPI structured values override scraped text where available
     if sport == "soccer":
-        stats["goals_scored_avg"]   = rapid_stats.get(
-            "goals_scored_avg",   combined.get("goals_scored_avg",   1.40))
-        stats["goals_conceded_avg"] = rapid_stats.get(
-            "goals_conceded_avg", combined.get("goals_conceded_avg",  1.20))
-        stats["clean_sheet_rate"]   = combined.get("clean_sheet_rate", 0.28)
+        stats["goals_scored_avg"] = combined.get("goals_scored_avg", 1.40)
+        stats["goals_conceded_avg"] = combined.get("goals_conceded_avg", 1.20)
+        stats["clean_sheet_rate"] = combined.get("clean_sheet_rate", 0.28)
 
     # Platform is soccer-only.
-
-
-    # Override win_rate from RapidAPI if available (more accurate than scraped)
-    if rapid_stats.get("win_rate_signal"):
-        stats["win_rate_signal"] = rapid_stats["win_rate_signal"]
-        stats["espn_win_pct"]    = rapid_stats.get("espn_win_pct", stats["espn_win_pct"])
 
     _set_cache(ck, stats, ttl=CACHE_TTL_MEDIUM)
     return stats

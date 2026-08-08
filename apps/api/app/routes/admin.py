@@ -37,7 +37,7 @@ async def recompute_groups(match_date: Optional[str] = Query(None, description="
 async def enrich_corners(limit: int = Query(200, ge=1, le=2000)):
     """Attempt to fetch corner totals for recent actual_results missing corner data.
 
-    Uses RapidAPI fixture statistics as a fallback (requires RAPID_API_KEY).
+    Uses the currently configured free corner-stat fallback.
     """
     db = get_db()
     from app.services.result_resolver import _fetch_corner_stats
@@ -61,7 +61,7 @@ async def enrich_corners(limit: int = Query(200, ge=1, le=2000)):
                 "home_corners": stats.get("home_corners"),
                 "away_corners": stats.get("away_corners"),
                 "total_corners": stats.get("total_corners"),
-                "corner_source": stats.get("source") or "rapidapi",
+                "corner_source": stats.get("source") or "free_fallback",
             }
             await db.actual_results.update_one({"match_id": match_id}, {"$set": payload})
             updated += 1

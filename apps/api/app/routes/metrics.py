@@ -361,14 +361,15 @@ async def get_performance_history(days: int = Query(90, ge=7, le=365)):
     if not actual_results:
         return []
 
-    # Fetch resolved predictions within the date window
+    # Fetch resolved predictions within the date window. Resolved matches may have
+    # been soft-deleted later by duplicate/admin cleanup; performance history is an
+    # audit trail and must still count them once actual_results has the match_id.
     eps = 1e-9
     by_date: dict[str, list[dict]] = defaultdict(list)
 
     async for pred in db.predictions.find(
         {
             "match_id": {"$in": list(actual_results.keys())},
-            "deleted_at": None,
             "match_date": {"$gte": cutoff},
             "sport": METRIC_SPORT,
         }
