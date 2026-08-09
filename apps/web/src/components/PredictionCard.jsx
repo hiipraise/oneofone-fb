@@ -1,50 +1,165 @@
 // src/components/PredictionCard.jsx
 import React, { useState } from "react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  RadialBarChart,
+  RadialBar,
+  PolarAngleAxis,
+  ResponsiveContainer,
+} from "recharts";
 import { formatWatDate } from "../utils/wat";
 
-// ─── Probability bar ─────────────────────────────────────────────────────────
-function ProbBar({ label, value, isWinner }) {
-  const pct = Math.round((value ?? 0) * 100);
-  const barColor = isWinner ? "bg-brand-green" : "bg-brand-midgray";
-  const textColor = isWinner ? "text-brand-greenlight" : "text-gray-400";
+// ─── Probability donut + legend (Sprint 2) ───────────────────────────────────
+// Compact recharts donut showing home/draw/away split at a glance; the winner
+// slice is saturated, the rest dimmed, with a thin track + % legend alongside.
+function ProbabilityDonut({ home = 0, draw = 0, away = 0, winnerIs }) {
+  const sides = [
+    { key: "home_win", label: "HOME", pct: home, color: "#22c55e" },
+    { key: "draw", label: "DRAW", pct: draw, color: "#eab308" },
+    { key: "away_win", label: "AWAY", pct: away, color: "#ef4444" },
+  ];
+
+  const hasAnyProb = sides.some((s) => Number(s.pct) > 0);
+  if (!hasAnyProb) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <p className="font-display text-xs text-gray-600">
+          NO PROBABILITY DATA
+        </p>
+      </div>
+    );
+  }
+
+  // Default the highlighted slice to the most likely outcome when the pick
+  // isn't recorded (legacy docs) so the donut always reads at a glance.
+  const effectiveWinner =
+    winnerIs || sides.reduce((best, s) =>
+      Number(s.pct) > Number(best.pct) ? s : best, sides[0]
+    ).key;
+
+  const data = sides.map((s) => ({
+    ...s,
+    value: Math.max((s.pct ?? 0) * 100, 0.5), // keep a tiny visible slice
+  }));
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="font-display text-xs text-gray-500 w-24 shrink-0 truncate">
-        {label}
-      </span>
-      <div className="flex-1 h-1.5 bg-brand-darkgray rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
-          style={{ width: `${pct}%` }}
-        />
+    <div className="flex flex-wrap items-center gap-4">
+      <div className="w-20 h-20 shrink-0 mx-auto sm:mx-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="label"
+              innerRadius="62%"
+              outerRadius="92%"
+              paddingAngle={2}
+              stroke="none"
+              startAngle={90}
+              endAngle={-270}
+            >
+              {data.map((d) => (
+                <Cell
+                  key={d.key}
+                  fill={d.color}
+                  fillOpacity={d.key === effectiveWinner ? 1 : 0.3}
+                />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
       </div>
-      <span
-        className={`font-display text-xs w-10 text-right tabular-nums ${textColor}`}
-      >
-        {pct}%
-      </span>
+      <div className="flex-1 min-w-[200px] flex flex-col gap-1.5">
+        {sides.map((s) => {
+          const pct = Math.round((s.pct ?? 0) * 100);
+          const isWin = s.key === effectiveWinner;
+          return (
+            <div key={s.key} className="flex items-center gap-2">
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: s.color, opacity: isWin ? 1 : 0.4 }}
+              />
+              <span
+                className={`font-display text-xs truncate ${isWin ? "text-white" : "text-gray-500"}`}
+              >
+                {s.label}
+              </span>
+              <span className="flex-1 h-1 bg-brand-darkgray rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: s.color,
+                    opacity: isWin ? 1 : 0.35,
+                  }}
+                />
+              </span>
+              <span
+                className={`font-display text-xs tabular-nums w-10 text-right ${isWin ? "text-white" : "text-gray-500"}`}
+              >
+                {pct}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// ─── Confidence badge ────────────────────────────────────────────────────────
-function ConfidenceBadge({ value }) {
+// ─── Confidence gauge (Sprint 2) ─────────────────────────────────────────────
+// Radial gauge color-banded like the old badge: green >=60%, yellow 35-59%,
+// red <35%. Reads as a meter instead of a label.
+function ConfidenceGauge({ value }) {
   const pct = Math.round((value ?? 0) * 100);
-  const color =
-    pct >= 60
-      ? "text-brand-greenlight bg-brand-greendark border-brand-green"
-      : pct >= 35
-        ? "text-yellow-400 bg-yellow-900/30 border-yellow-700"
-        : "text-brand-redlight bg-brand-reddark border-brand-red";
+  const color = pct >= 60 ? "#22c55e" : pct >= 35 ? "#eab308" : "#ef4444";
+  const data = [{ name: "confidence", value: pct }];
   return (
-    <span
-      className={`font-display text-xs px-2 py-0.5 rounded-sm border ${color}`}
+    <div
+      className="relative w-14 h-14 shrink-0"
+      title={`${pct}% confidence`}
     >
-      {pct}% confidence
-    </span>
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          cx="50%"
+          cy="50%"
+          innerRadius="68%"
+          outerRadius="100%"
+          barSize={5}
+          data={data}
+          startAngle={225}
+          endAngle={-45}
+        >
+          <PolarAngleAxis
+            type="number"
+            domain={[0, 100]}
+            angleAxisId={0}
+            tick={false}
+          />
+          <RadialBar
+            background={{ fill: "#2a2a2a" }}
+            dataKey="value"
+            cornerRadius={4}
+            angleAxisId={0}
+            fill={color}
+          />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span
+          className="font-display text-xs tabular-nums"
+          style={{ color }}
+        >
+          {pct}%
+        </span>
+      </div>
+    </div>
   );
 }
+
+// Confidence is now rendered as a radial gauge in the card header.
 
 // ─── BTTS badge ──────────────────────────────────────────────────────────────
 function BttsBadge({ btts }) {
@@ -175,6 +290,53 @@ function CornerResolutionBadge({ corners, resolvedMatch }) {
   );
 }
 
+// ─── Market picks strip (Sprint 8) ──────────────────────────────────────────
+// Shows the best selection per extended market (1X2, Double Chance, DNB,
+// Goals O/U, BTTS, 1st Half, 10-Min, Either Half) so a card reads like a
+// board of picks, not just a match-winner guess. Only renders when the
+// prediction carries extended_markets.market_picks (computed by the API).
+function MarketPicks({ picks }) {
+  if (!Array.isArray(picks) || !picks.length) return null;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-brand-midgray">
+      <p className="label mb-2">MARKET PICKS</p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-1.5">
+        {picks.map((pick, i) => {
+          const pct = Math.round((pick?.probability || 0) * 100);
+          const strong = pct >= 60;
+          const decent = pct >= 45;
+          return (
+            <div
+              key={`${pick?.market}-${i}`}
+              className="bg-brand-darkgray border border-brand-midgray rounded-sm px-2 py-1.5 min-w-0"
+              title={`${pick?.market}: ${pick?.selection} (${pct}%)`}
+            >
+              <p className="font-display text-[10px] tracking-widest text-gray-600 truncate">
+                {pick?.market}
+              </p>
+              <p className="font-display text-xs text-white truncate mt-0.5">
+                {pick?.selection}
+              </p>
+              <p
+                className={`font-display text-xs tabular-nums mt-0.5 ${
+                  strong
+                    ? "text-brand-greenlight"
+                    : decent
+                      ? "text-yellow-500"
+                      : "text-gray-500"
+                }`}
+              >
+                {pct}%
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main card ───────────────────────────────────────────────────────────────
 
 function ResolutionBadge({ prediction, resolvedMatch }) {
@@ -288,12 +450,12 @@ export default function PredictionCard({
   return (
     <div className="card p-4 animate-slide-up hover:border-gray-600 transition-colors duration-200">
       {/* Header */}
-      <div className="flex items-start justify-between mb-3 gap-2">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+        <div className="min-w-0 flex-1 basis-52">
           <div className="flex items-center gap-1.5 flex-wrap mb-1">
             {sport && <span className="tag-gray">{sport.toUpperCase()}</span>}
             {league && (
-              <span className="tag-gray truncate max-w-[120px]">{league}</span>
+              <span className="tag-gray truncate max-w-[140px]">{league}</span>
             )}
             <ResolutionBadge
               prediction={prediction}
@@ -305,7 +467,7 @@ export default function PredictionCard({
               {isEngineActive ? "ML ACTIVE" : "PRIOR MODE"}
             </span>
           </div>
-          <p className="font-display text-sm text-white leading-snug">
+          <p className="font-display text-sm text-white leading-snug break-words">
             {home_team}
             <span className="text-gray-600 mx-1.5 text-xs">vs</span>
             {away_team}
@@ -315,36 +477,35 @@ export default function PredictionCard({
           </p>
         </div>
 
-        <div className="text-right shrink-0">
-          <p className={`font-display text-sm font-medium ${outcomeColor}`}>
-            {outcomeLabel}
-          </p>
-          <ConfidenceBadge value={confidence_score} />
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right min-w-0">
+            <p className={`font-display text-sm font-medium ${outcomeColor} break-words`}>
+              {outcomeLabel}
+            </p>
+            <p className="font-display text-[10px] tracking-widest text-gray-600 mt-0.5">
+              CONFIDENCE
+            </p>
+          </div>
+          <ConfidenceGauge value={confidence_score} />
         </div>
       </div>
 
-      {/* Probability bars */}
-      <div className="flex flex-col gap-2 my-3">
-        <ProbBar
-          label={home_team}
-          value={home_win_probability}
-          isWinner={winnerIs === "home_win"}
-        />
-        <ProbBar
-          label="Draw"
-          value={draw_probability}
-          isWinner={winnerIs === "draw"}
-        />
-        <ProbBar
-          label={away_team}
-          value={away_win_probability}
-          isWinner={winnerIs === "away_win"}
+      {/* Probability split */}
+      <div className="my-3">
+        <ProbabilityDonut
+          home={home_win_probability}
+          draw={draw_probability}
+          away={away_win_probability}
+          winnerIs={winnerIs}
         />
       </div>
 
+      {/* Best pick per extended market (Sprint 8) */}
+      <MarketPicks picks={extended_markets?.market_picks} />
+
       {/* Footer row */}
       <div className="flex items-center justify-between pt-2 border-t border-brand-midgray gap-2 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap min-w-0">
           <div>
             <span className="label">CI</span>
             <p className="font-display text-xs text-gray-500 mt-0.5 tabular-nums">

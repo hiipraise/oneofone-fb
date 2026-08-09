@@ -81,8 +81,12 @@ class PredictionOutput(BaseModel):
 
     features_used: Dict[str, Any]
     data_sources: List[str]
+    feature_provenance: Optional[Dict[str, Any]] = None
     extended_markets: Optional[Dict[str, Any]] = None
     fixture_validation: Optional[Dict[str, Any]] = None
+    # Sprint 7.18 — odds recorded at prediction time so any future ROI/value
+    # claim can be traced to the actual prices this prediction saw.
+    odds_snapshot: Optional[Dict[str, Any]] = None
 
 
 class ActualResultInput(BaseModel):

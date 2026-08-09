@@ -457,9 +457,48 @@ def _safe_int(value) -> Optional[int]:
         return None
 
 
-def _fetch_corner_stats(home_team: str, away_team: str, match_date: str) -> Optional[Dict[str, int | str]]:
-    """Paid RapidAPI corner enrichment was removed; callers use ESPN/free source fallbacks only."""
-    return None
+def _fetch_corner_stats(
+    home_team: str,
+    away_team: str,
+    match_date: str,
+    sport: str = "soccer",
+    completed_games: Optional[List[Dict]] = None,
+) -> Optional[Dict[str, int | str]]:
+    """
+    Free corner backfill used by the admin enrich-corners route.
+
+    Sprint 4.4: the paid RapidAPI path was removed, leaving only free sources.
+    This locates the finished fixture on the ESPN scoreboard (team names +
+    date) and pulls its corner totals from the ESPN summary — the same free
+    pipeline the resolver uses for live resolution. Best-effort: returns None
+    when the fixture isn't found or ESPN has no corner block.
+
+    ``completed_games`` lets the caller pass the already-fetched scoreboard
+    once (avoiding N+1 ESPN fetches when backfilling many matches).
+    """
+    try:
+        # ``is None`` (not falsy) so an explicitly-passed empty list short-circuits
+        # instead of re-running the full scoreboard scan per call (N+1 guard).
+        if completed_games is None:
+            completed_games = _fetch_completed_scores(sport)
+        if not completed_games:
+            return None
+        game = _find_completed_game_for_prediction(
+            {"sport": sport, "match_date": match_date, "home_team": home_team, "away_team": away_team},
+            completed_games,
+        )
+        if not game:
+            return None
+        return _fetch_espn_corner_stats(
+            game.get("sport_path", ESPN_SPORT_PATH.get(sport, "")),
+            game.get("league", ""),
+            game.get("fixture_id", ""),
+            game["home_team"],
+            game["away_team"],
+        )
+    except Exception as exc:
+        logger.debug(f"[resolver] Free corner backfill failed: {exc}")
+        return None
 
 
 # ── Main async resolver ───────────────────────────────────────────────────────
@@ -530,7 +569,10 @@ async def resolve_results() -> Dict:
                     game.get("fixture_id", ""),
                     game["home_team"],
                     game["away_team"],
-                ) or _fetch_corner_stats(game["home_team"], game["away_team"], game["match_date"])
+                ) or _fetch_corner_stats(
+                    game["home_team"], game["away_team"], game["match_date"], sport,
+                    completed_games=completed_games,
+                )
 
                 await save_actual_result(
                     match_id       = match_id,

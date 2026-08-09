@@ -1,10 +1,17 @@
 // src/pages/SchedulerPage.jsx
+//
+// Sprint 5.3 — status grid, trigger/toggle controls, and the log viewer were
+// extracted into src/components/scheduler/*. This page keeps data loading,
+// the fixtures table, prediction groups, config panel, and the layout.
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import PaginationControls from "../components/PaginationControls";
 import { disableScheduler, enableScheduler, triggerResolution, triggerScheduler } from "../services/api";
-import { formatWatDateTime, watTodayISO } from "../utils/wat";
+import { watTodayISO } from "../utils/wat";
+import SchedulerStatusGrid from "../components/scheduler/StatusCards";
+import SchedulerLogs from "../components/scheduler/SchedulerLogs";
+import TriggerControls, { MessageBanner } from "../components/scheduler/TriggerControls";
 
 const SPORTS = ["soccer"];
 const SPORT_DOTS = {
@@ -13,26 +20,6 @@ const SPORT_DOTS = {
 const SPORT_LABEL = {
   soccer: "Football / Soccer",
 };
-
-function timeAgo(ts) {
-  if (!ts) return "—";
-  const diff = Date.now() - new Date(ts).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function formatTime(iso) {
-  if (!iso) return "—";
-  try {
-    return formatWatDateTime(iso);
-  } catch {
-    return iso;
-  }
-}
 
 function rankedPredictionSort(a, b) {
   const rankA = Number.isFinite(Number(a?.overall_rank))
@@ -172,77 +159,6 @@ function buildPredictionGroups(fixtures) {
     if (aIdx !== bIdx) return aIdx - bIdx;
     return String(a.group_id || "").localeCompare(String(b.group_id || ""));
   });
-}
-
-// ── Status card ───────────────────────────────────────────────────────────────
-function StatusCard({ status, loading }) {
-  if (loading) {
-    return (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="card p-4 animate-pulse">
-            <div className="h-2 bg-brand-midgray rounded w-20 mb-3" />
-            <div className="h-6 bg-brand-midgray rounded w-24" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  const isOnline = status?.scheduler_running;
-  const totalToday = status?.today_predictions?.total ?? 0;
-  const bySport = status?.today_predictions?.by_sport ?? {};
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {/* Scheduler state */}
-      <div className="card p-4">
-        <p className="label mb-2">SCHEDULER</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <div
-            className={`w-2.5 h-2.5 rounded-full shrink-0 ${isOnline ? "bg-brand-green animate-pulse" : "bg-brand-red"}`}
-          />
-          <span
-            className={`font-display text-sm ${isOnline ? "text-brand-greenlight" : "text-brand-redlight"}`}
-          >
-            {isOnline ? "ONLINE" : "OFFLINE"}
-          </span>
-        </div>
-      </div>
-
-      {/* Next run */}
-      <div className="card p-4">
-        <p className="label mb-2">NEXT RUN</p>
-        <p className="font-display text-xs text-white leading-tight">
-          {formatTime(status?.next_run)}
-        </p>
-      </div>
-
-      {/* Last run */}
-      <div className="card p-4">
-        <p className="label mb-2">LAST RUN</p>
-        <p className="font-display text-xs text-white">
-          {timeAgo(status?.last_run?.timestamp)}
-        </p>
-        {status?.last_run?.timestamp && (
-          <p className="font-display text-xs text-gray-700 mt-0.5">
-            {formatTime(status.last_run.timestamp)}
-          </p>
-        )}
-      </div>
-
-      {/* Today total */}
-      <div className="card p-4">
-        <p className="label mb-2">TODAY</p>
-        <p className="font-display text-2xl text-white tabular-nums">
-          {totalToday}
-        </p>
-        <p className="font-display text-xs text-gray-600 mt-0.5">
-          predictions generated
-        </p>
-      </div>
-    </div>
-  );
 }
 
 // ── Today fixture table ───────────────────────────────────────────────────────
@@ -520,98 +436,6 @@ function PredictionGroupsPanel({ fixtures, loading }) {
   );
 }
 
-// ── Schedule log ──────────────────────────────────────────────────────────────
-function SchedulerLogs({ logs, loading }) {
-  const PAGE_SIZE = 10;
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    setPage(1);
-  }, [logs.length]);
-
-  const totalPages = Math.max(1, Math.ceil(logs.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const paginatedLogs = logs.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE,
-  );
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-1">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-8 bg-brand-midgray rounded animate-pulse" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!logs.length) {
-    return (
-      <div className="card p-6 text-center">
-        <p className="font-display text-gray-600 text-xs">
-          NO SCHEDULER LOGS YET
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="border-b border-brand-midgray bg-brand-darkgray">
-            <tr>
-              {["TIMESTAMP", "LEVEL", "MESSAGE"].map((h) => (
-                <th key={h} className="text-left label px-4 py-3">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedLogs.map((log, i) => (
-              <tr
-                key={i}
-                className="border-b border-brand-midgray hover:bg-brand-gray transition-colors"
-              >
-                <td className="px-4 py-3 font-display text-xs text-gray-500 whitespace-nowrap">
-                  {formatTime(log.timestamp)}
-                  <span className="ml-2 text-gray-700">
-                    {timeAgo(log.timestamp)}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`font-display text-xs px-2 py-0.5 rounded-sm border ${
-                      log.level === "ERROR"
-                        ? "text-brand-redlight bg-brand-reddark border-brand-red"
-                        : log.level === "WARNING"
-                          ? "text-yellow-400 bg-yellow-900/20 border-yellow-800"
-                          : "text-brand-greenlight bg-brand-greendark border-brand-green"
-                    }`}
-                  >
-                    {log.level}
-                  </span>
-                </td>
-                <td className="px-4 py-3 font-display text-xs text-gray-400">
-                  {log.message}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <PaginationControls
-        currentPage={safePage}
-        totalItems={logs.length}
-        pageSize={PAGE_SIZE}
-        onPageChange={setPage}
-        itemLabel="LOG ENTRIES"
-      />
-    </div>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SchedulerPage() {
   const defaultDate = watTodayISO();
@@ -679,6 +503,12 @@ export default function SchedulerPage() {
     return () => clearInterval(id);
   }, [loadStatus, loadFixtures, loadLogs]);
 
+  const handleRefresh = () => {
+    setStatusLoading(true);
+    loadStatus();
+    loadFixtures();
+    loadLogs();
+  };
 
   const handleToggleEnabled = async () => {
     setTogglingEnabled(true);
@@ -768,98 +598,35 @@ export default function SchedulerPage() {
             Automated prediction generation · Runs daily at configured WAT time
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => {
-              setStatusLoading(true);
-              loadStatus();
-              loadFixtures();
-              loadLogs();
-            }}
-            className="btn-ghost text-xs"
-          >
-            ↺ REFRESH
-          </button>
-
-          <button
-            onClick={handleToggleEnabled}
-            disabled={togglingEnabled || !status?.scheduler_running}
-            className={`text-xs px-3 py-2 rounded-sm border font-display ${
-              status?.scheduler_enabled === false
-                ? "border-brand-red text-brand-redlight bg-brand-reddark"
-                : "border-brand-green text-brand-greenlight bg-brand-greendark"
-            }`}
-          >
-            {togglingEnabled
-              ? "UPDATING..."
-              : status?.scheduler_enabled === false
-                ? "ENABLE JOBS"
-                : "DISABLE JOBS"}
-          </button>
-          <button
-            onClick={handleResolve}
-            disabled={resolving || !status?.scheduler_running}
-            className="btn-ghost text-xs"
-          >
-            {resolving ? (
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-                RESOLVING...
-              </span>
-            ) : (
-              "⟳ RESOLVE RESULTS"
-            )}
-          </button>
-          <button
-            onClick={handleTrigger}
-            disabled={triggering || !status?.scheduler_running}
-            className="btn-primary"
-          >
-            {triggering ? (
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                RUNNING...
-              </span>
-            ) : (
-              "▶ RUN NOW"
-            )}
-          </button>
-        </div>
+        <TriggerControls
+          status={status}
+          togglingEnabled={togglingEnabled}
+          triggering={triggering}
+          resolving={resolving}
+          onRefresh={handleRefresh}
+          onToggleEnabled={handleToggleEnabled}
+          onTrigger={handleTrigger}
+          onResolve={handleResolve}
+        />
       </div>
 
-      {/* Trigger messages */}
-      {trigMsg && (
-        <div
-          className={`font-display text-xs px-4 py-3 rounded-sm border ${
-            trigMsg.type === "success"
-              ? "text-brand-greenlight bg-brand-greendark border-brand-green"
-              : "text-brand-redlight bg-brand-reddark border-brand-red"
-          }`}
-        >
-          {trigMsg.text}
-          {trigMsg.type === "success" && (
-            <span className="text-gray-500 ml-2">
-              Results will appear below in ~30s
-            </span>
-          )}
-        </div>
-      )}
-      {resolveMsg && (
-        <div
-          className={`font-display text-xs px-4 py-3 rounded-sm border ${
-            resolveMsg.type === "success"
-              ? "text-brand-greenlight bg-brand-greendark border-brand-green"
-              : "text-brand-redlight bg-brand-reddark border-brand-red"
-          }`}
-        >
-          {resolveMsg.text}
-          {resolveMsg.type === "success" && (
-            <span className="text-gray-500 ml-2">
-              Check logs below for resolved matches
-            </span>
-          )}
-        </div>
-      )}
+      {/* Trigger messages — hint only applies to success banners */}
+      <MessageBanner
+        msg={
+          trigMsg &&
+          (trigMsg.type === "success"
+            ? { ...trigMsg, hint: "Results will appear below in ~30s" }
+            : trigMsg)
+        }
+      />
+      <MessageBanner
+        msg={
+          resolveMsg &&
+          (resolveMsg.type === "success"
+            ? { ...resolveMsg, hint: "Check logs below for resolved matches" }
+            : resolveMsg)
+        }
+      />
 
       {/* Status cards */}
       <section className="space-y-3">
@@ -870,75 +637,7 @@ export default function SchedulerPage() {
             {pendingLogsCount} alerts
           </span>
         </div>
-        {statusLoading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="card p-4 animate-pulse">
-                <div className="h-2 bg-brand-midgray rounded w-20 mb-3" />
-                <div className="h-6 bg-brand-midgray rounded w-24" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {/* Scheduler state */}
-            <div className="card p-4">
-              <p className="label mb-2">SCHEDULER</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <div
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${status?.scheduler_running ? "bg-brand-green animate-pulse" : "bg-brand-red"}`}
-                />
-                <span
-                  className={`font-display text-sm ${status?.scheduler_running ? "text-brand-greenlight" : "text-brand-redlight"}`}
-                >
-                  {status?.scheduler_running
-                    ? status?.scheduler_enabled === false
-                      ? "PAUSED"
-                      : "ONLINE"
-                    : "OFFLINE"}
-                </span>
-              </div>
-            </div>
-
-            {/* Next prediction run */}
-            <div className="card p-4">
-              <p className="label mb-2">NEXT PREDICTIONS</p>
-              <p className="font-display text-xs text-white leading-tight">
-                {formatTime(status?.next_run)}
-              </p>
-            </div>
-
-            {/* Next resolution run */}
-            <div className="card p-4">
-              <p className="label mb-2">NEXT RESOLUTION</p>
-              <p className="font-display text-xs text-white leading-tight">
-                {formatTime(status?.next_resolution)}
-              </p>
-            </div>
-
-            {/* Today predictions */}
-            <div className="card p-4">
-              <p className="label mb-2">TODAY</p>
-              <p className="font-display text-2xl text-white tabular-nums">
-                {status?.today_predictions?.total ?? 0}
-              </p>
-              <p className="font-display text-xs text-gray-600 mt-0.5">
-                predictions generated
-              </p>
-            </div>
-
-            {/* Resolved today */}
-            <div className="card p-4">
-              <p className="label mb-2">RESOLVED</p>
-              <p className="font-display text-2xl tabular-nums text-brand-greenlight">
-                {status?.resolved_today ?? 0}
-              </p>
-              <p className="font-display text-xs text-gray-600 mt-0.5">
-                results auto-resolved
-              </p>
-            </div>
-          </div>
-        )}
+        <SchedulerStatusGrid status={status} loading={statusLoading} />
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">

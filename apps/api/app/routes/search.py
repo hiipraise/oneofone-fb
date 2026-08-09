@@ -1,7 +1,8 @@
 # app/routes/search.py
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.config.api_contract import SEARCH_QUERY_MIN_LENGTH, SEARCH_QUERY_MAX_LENGTH
+from app.utils.rate_limit import limiter
 from app.services.web_search_service import (
     search_web,
     fetch_team_stats,
@@ -13,13 +14,15 @@ router = APIRouter()
 
 
 @router.get("/")
-async def web_search(q: str = Query(..., min_length=SEARCH_QUERY_MIN_LENGTH, max_length=SEARCH_QUERY_MAX_LENGTH)):
+@limiter.limit("30/minute")
+async def web_search(request: Request, q: str = Query(..., min_length=SEARCH_QUERY_MIN_LENGTH, max_length=SEARCH_QUERY_MAX_LENGTH)):
     results = search_web(q, num_results=5)
     return {"query": q, "results": results}
 
 
 @router.get("/team")
-async def team_info(team: str = Query(...), sport: str = Query("soccer")):
+@limiter.limit("30/minute")
+async def team_info(request: Request, team: str = Query(...), sport: str = Query("soccer")):
     stats = fetch_team_stats(team, sport)
     form = fetch_recent_form(team, sport)
     injuries = fetch_injury_report(team, sport)

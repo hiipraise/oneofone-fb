@@ -103,6 +103,32 @@ export default function MarketAccuracyChart({ days = 90 }) {
           if (isOU) icon = "🎯";
           if (isCorners) icon = "🔄";
 
+          // Sprint 7.20 — explicit insufficient-data contract: when the backend
+          // reports available:false (no resolved samples for this market), render
+          // a real "not enough data yet" state instead of a bare N/A/NaN.
+          if (market.available === false) {
+            return (
+              <div
+                key={market.market_type || idx}
+                className="p-4 rounded border border-brand-midgray bg-gray-900/20"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">{icon}</span>
+                  <span className="font-display text-sm font-medium">
+                    {market.name}
+                  </span>
+                </div>
+                <p className="text-brand-redlight font-display text-xs">
+                  NOT ENOUGH DATA YET
+                </p>
+                <p className="text-gray-600 text-xs mt-1">
+                  {market.reason ||
+                    "No resolved predictions recorded for this market yet."}
+                </p>
+              </div>
+            );
+          }
+
           const accuracy = market.accuracy;
           const accuracyPct =
             accuracy != null ? (accuracy * 100).toFixed(1) : "N/A";

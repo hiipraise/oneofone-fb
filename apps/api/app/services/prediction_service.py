@@ -1,6 +1,6 @@
 # app/services/prediction_service.py
 """
-Prediction service.
+Prediction service — prediction CRUD + pipeline orchestration.
 
 SerpAPI call budget per prediction: ~3 calls (was ~9)
   - fetch_team_stats(home)    → 1 combined SerpAPI call (form+injuries+stats)
@@ -9,28 +9,19 @@ SerpAPI call budget per prediction: ~3 calls (was ~9)
   - fetch_betting_odds        → Odds API only (no SerpAPI)
   - ESPN calls                → free, no quota
 
-Learning update isolation
-  - trigger_learning_update() opens its own AsyncIOMotorClient in its own
-    event loop running in a daemon thread — the same pattern as the daily
-    scheduler.  This avoids SSL handshake timeouts that occur when Motor's
-    async cursor falls back to pymongo.synchronous pool threads that don't
-    share the main connection's TLS session.
+Result-saving / background learning logic lives in
+app.services.prediction_learning (Sprint 5.3 file split) and is re-exported
+here so existing import sites keep working unchanged.
 """
-import asyncio
 import hashlib
 import json
 import logging
-import math
-import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from app.utils.timezone import now_wat, WAT
 from typing import Dict, Optional, List, Any
 
-from pymongo.errors import ConfigurationError
-
 from app.config.database import get_db
-from app.config.settings import settings
 from app.schemas.prediction_schema import PredictionRequest, PredictionOutput
 from app.services.web_search_service import (
     fetch_team_stats,
@@ -40,29 +31,18 @@ from app.services.web_search_service import (
 from app.services.match_validation_service import is_fixture_completed
 from app.services.market_service import compute_all_markets
 from app.ml.prediction_engine import prediction_engine
+from app.services.prediction_learning import (
+    save_actual_result,
+    trigger_learning_update,
+    _is_mongo_dns_resolution_error,
+    _split_learning_records,
+)
 from app.utils.logging_util import log_system_event
 
 _PREDICTION_TTL_HOURS = 12
 _EXTERNAL_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 logger = logging.getLogger(__name__)
-
-# Sports the ML engine supports — soccer-only platform
-_SUPPORTED_ML_SPORTS = {"soccer"}
-
-
-def _is_mongo_dns_resolution_error(exc: Exception) -> bool:
-    """Return True when PyMongo failed to resolve an SRV/TXT Mongo host."""
-    if not isinstance(exc, ConfigurationError):
-        return False
-
-    message = str(exc).lower()
-    return (
-        "dns" in message
-        or "resolution lifetime expired" in message
-        or "operation timed out" in message
-        or "srv" in message
-    )
 
 
 def _generate_match_id(home: str, away: str, sport: str, date: str = "") -> str:
@@ -197,24 +177,6 @@ async def _get_or_set_external_cache(db, namespace: str, payload: Dict[str, Any]
     return data
 
 
-def _split_learning_records(records: List[Dict], holdout_fraction: float = 0.2, min_holdout: int = 5) -> tuple[List[Dict], List[Dict]]:
-    if len(records) < (min_holdout * 2):
-        return records, []
-
-    ordered = sorted(
-        records,
-        key=lambda rec: (
-            str(rec.get("match_date") or ""),
-            str(rec.get("match_id") or ""),
-        ),
-    )
-    eval_size = max(min_holdout, int(round(len(ordered) * holdout_fraction)))
-    eval_size = min(eval_size, len(ordered) - min_holdout)
-    if eval_size < min_holdout:
-        return ordered, []
-    return ordered[:-eval_size], ordered[-eval_size:]
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Prediction CRUD
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,15 +241,15 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
     home_stats = await _get_or_set_external_cache(
         db,
         "team_stats",
-        {"team": request.home_team.lower(), "sport": sport},
-        lambda: fetch_team_stats(request.home_team, sport),
+        {"team": request.home_team.lower(), "sport": sport, "league": (request.league or "").lower()},
+        lambda: fetch_team_stats(request.home_team, sport, request.league),
     )
     logger.info("Prediction pipeline [%s]: fetching away team stats", match_id)
     away_stats = await _get_or_set_external_cache(
         db,
         "team_stats",
-        {"team": request.away_team.lower(), "sport": sport},
-        lambda: fetch_team_stats(request.away_team, sport),
+        {"team": request.away_team.lower(), "sport": sport, "league": (request.league or "").lower()},
+        lambda: fetch_team_stats(request.away_team, sport, request.league),
     )
 
     logger.info("Prediction pipeline [%s]: fetching h2h + venue", match_id)
@@ -310,9 +272,39 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
         ttl_seconds=20 * 60,
     )
 
+    # Real expected-goals (Understat, free) — best-effort; silently falls back
+    # to the heuristic xG when the league/fixture isn't covered by the source.
+    # Cached like every other external fetch so repeated lookups are free.
+    scraped_xg: Optional[Dict[str, Any]] = None
+    if settings.ENABLE_XG_SCRAPING:
+        try:
+            from app.services.scraping_service import lookup_understat_xg
+            xg_lookup = await _get_or_set_external_cache(
+                db,
+                "understat_xg",
+                {
+                    "home": request.home_team.lower(),
+                    "away": request.away_team.lower(),
+                    "league": (request.league or "").lower(),
+                },
+                lambda: lookup_understat_xg(request.home_team, request.away_team, request.league or ""),
+                ttl_seconds=6 * 60 * 60,
+            )
+            if isinstance(xg_lookup, dict) and xg_lookup.get("available"):
+                scraped_xg = xg_lookup
+                logger.info(
+                    "Prediction pipeline [%s]: real xG from Understat "
+                    "(home=%.2f away=%.2f)",
+                    match_id,
+                    float(xg_lookup.get("home_xg") or 0.0),
+                    float(xg_lookup.get("away_xg") or 0.0),
+                )
+        except Exception as exc:
+            logger.debug("Prediction pipeline [%s]: Understat xG lookup failed: %s", match_id, exc)
+
     logger.info("Prediction pipeline [%s]: building features + predicting", match_id)
     features = prediction_engine.features_from_data(
-        home_stats, away_stats, h2h, odds, venue, sport=sport
+        home_stats, away_stats, h2h, odds, venue, sport=sport, scraped_xg=scraped_xg,
     )
     result = prediction_engine.predict(features, sport=sport)
 
@@ -324,6 +316,64 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
     except Exception as e:
         logger.warning(f"Market calculation error: {e}")
         markets = None
+
+    # ── Source provenance (Sprint 7.19) ─────────────────────────────────────
+    # Record which data sources actually returned usable data for this match so
+    # a degraded/fallback prediction can be traced back to a missing source.
+    h2h_total = int(h2h.get("total_games") or 0) if isinstance(h2h, dict) else 0
+    odds_live = bool(
+        isinstance(odds, dict)
+        and odds.get("implied_home_prob") is not None
+        and odds.get("implied_away_prob") is not None
+    )
+    venue_signal = bool(
+        isinstance(venue, dict) and venue.get("home_advantage_signal") is not None
+    )
+
+    # OpenLigaDB (free scrape source) availability — real scored-goal/form stats
+    # for German-league fixtures; missing league -> no enrichment.
+    olg_home = bool(isinstance(home_stats, dict) and home_stats.get("openligadb_available"))
+    olg_away = bool(isinstance(away_stats, dict) and away_stats.get("openligadb_available"))
+
+    data_sources = ["ESPN Public API (team stats)"]
+    if olg_home or olg_away:
+        data_sources.append("OpenLigaDB (free scraped goals/form stats)")
+    if scraped_xg:
+        data_sources.append("Understat xG (real expected goals)")
+    else:
+        data_sources.append("Understat xG (unavailable — heuristic xG used)")
+    if h2h_total > 0:
+        data_sources.append("Web search H2H + venue (Serper/DuckDuckGo)")
+    else:
+        data_sources.append("Web search H2H + venue (unavailable — priors used)")
+    if odds_live:
+        data_sources.append("The Odds API (live odds)")
+    else:
+        data_sources.append("The Odds API (unavailable — priors used)")
+
+    feature_provenance = {
+        "sources": data_sources,
+        "h2h_games_found": h2h_total,
+        "odds_live": odds_live,
+        "venue_signal_present": venue_signal,
+        "openligadb_home": olg_home,
+        "openligadb_away": olg_away,
+        "recorded_at": datetime.now(WAT).isoformat(),
+    }
+
+    # ── Odds snapshot (Sprint 7.18) ──────────────────────────────────────────
+    # Record the odds this prediction actually saw at generation time so any
+    # ROI/value claim can later be verified against the prediction doc alone
+    # (no join to feature_snapshots required). Best-effort; when the Odds API
+    # was unavailable the snapshot records that fact instead of omitting it.
+    odds_snapshot = {
+        "captured_at": datetime.now(WAT).isoformat(),
+        "source": "the-odds-api" if odds_live else "unavailable",
+    }
+    if isinstance(odds, dict):
+        odds_snapshot["implied_home_prob"] = odds.get("implied_home_prob")
+        odds_snapshot["implied_away_prob"] = odds.get("implied_away_prob")
+        odds_snapshot["market_confidence"] = odds.get("market_confidence", 0.0)
 
     output = PredictionOutput(
         match_id=match_id,
@@ -342,11 +392,10 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
         model_version=result["model_version"],
         timestamp=datetime.now(WAT),
         features_used=features,
-        data_sources=[
-            "ESPN Public API", "The Odds API",
-            "SerpAPI Web Search (combined)", "Venue Statistics",
-        ],
+        data_sources=data_sources,
+        feature_provenance=feature_provenance,
         extended_markets=markets,
+        odds_snapshot=odds_snapshot,
     )
 
     doc = output.model_dump()
@@ -443,289 +492,6 @@ async def restore_prediction(match_id: str) -> bool:
         {"$set": {"deleted_at": None}},
     )
     return result.matched_count > 0
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Result submission + isolated background learning
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def save_actual_result(
-    match_id: str, home_score: int, away_score: int,
-    actual_outcome: str, match_date: str,
-    corner_stats: Optional[Dict[str, Any]] = None,
-):
-    """
-    Persist the actual match result, then kick off learning in a fully
-    isolated background thread (own event loop + own Motor client).
-
-    Why isolated?
-    Motor's async cursor internally delegates to pymongo.synchronous pool
-    threads.  When those threads try to open a NEW TLS connection to Atlas
-    from inside asyncio.create_task(), the SSL handshake times out because
-    they don't share the main event loop's connection pool.  Running in a
-    dedicated thread with a fresh Motor client avoids this entirely — the
-    same approach the daily scheduler uses.
-    """
-    db = get_db()
-    if not actual_outcome:
-        actual_outcome = (
-            "home_win" if home_score > away_score
-            else "away_win" if away_score > home_score
-            else "draw"
-        )
-
-    prediction = await db.predictions.find_one(
-        {"match_id": match_id},
-        {
-            "_id": 0,
-            "home_team": 1,
-            "away_team": 1,
-            "sport": 1,
-            "league": 1,
-            "predicted_outcome": 1,
-            "confidence_score": 1,
-            "prediction_group_id": 1,
-        },
-    )
-
-    doc = {
-        "match_id":       match_id,
-        "home_score":     home_score,
-        "away_score":     away_score,
-        "actual_outcome": actual_outcome,
-        "actual_result":  f"{home_score}-{away_score}",
-        "match_date":     match_date,
-        "recorded_at":    now_wat().isoformat(),
-    }
-    if corner_stats:
-        doc.update({
-            "home_corners": corner_stats.get("home_corners"),
-            "away_corners": corner_stats.get("away_corners"),
-            "total_corners": corner_stats.get("total_corners"),
-            "corner_source": corner_stats.get("source"),
-        })
-    if prediction:
-        doc.update({
-            "home_team": prediction.get("home_team"),
-            "away_team": prediction.get("away_team"),
-            "sport": prediction.get("sport"),
-            "league": prediction.get("league"),
-            "predicted_outcome": prediction.get("predicted_outcome"),
-            "confidence_score": prediction.get("confidence_score"),
-        })
-
-    await db.actual_results.replace_one({"match_id": match_id}, doc, upsert=True)
-
-    # Group-level resolution: when all games in a group are resolved, stamp group result.
-    group_id = (prediction or {}).get("prediction_group_id")
-    if group_id:
-        group_preds = []
-        async for gp in db.predictions.find(
-            {"prediction_group_id": group_id, "deleted_at": None},
-            {"_id": 0, "match_id": 1, "predicted_outcome": 1},
-        ):
-            group_preds.append(gp)
-
-        group_match_ids = [g["match_id"] for g in group_preds]
-        resolved = []
-        async for ar in db.actual_results.find(
-            {"match_id": {"$in": group_match_ids}},
-            {"_id": 0, "match_id": 1, "actual_outcome": 1},
-        ):
-            resolved.append(ar)
-
-        if len(group_match_ids) >= 2 and len(resolved) == len(group_match_ids):
-            resolved_map = {r["match_id"]: r.get("actual_outcome") for r in resolved}
-            hits = sum(
-                1 for g in group_preds
-                if g.get("predicted_outcome") and resolved_map.get(g["match_id"]) == g.get("predicted_outcome")
-            )
-            hit_rate = hits / len(group_match_ids) if group_match_ids else 0.0
-            group_status = "won" if hits == len(group_match_ids) else "lost"
-
-            await db.actual_results.update_many(
-                {"match_id": {"$in": group_match_ids}},
-                {"$set": {
-                    "group_id": group_id,
-                    "group_resolved": True,
-                    "group_status": group_status,
-                    "group_hit_rate": round(hit_rate, 4),
-                    "group_resolved_at": now_wat().isoformat(),
-                }},
-            )
-        else:
-            await db.actual_results.update_one(
-                {"match_id": match_id},
-                {"$set": {
-                    "group_id": group_id,
-                    "group_resolved": False,
-                    "group_status": "pending",
-                }},
-            )
-
-    # Launch learning in a daemon thread — never blocks the HTTP response
-    t = threading.Thread(target=_run_learning_in_thread, daemon=True)
-    t.start()
-
-    return doc
-
-
-def _run_learning_in_thread() -> None:
-    """
-    Sync entry point for the daemon thread.
-    Creates a fresh event loop — mirrors run_daily_predictions() in scheduler.
-    """
-    loop = None
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_learning_with_own_client())
-    except ConfigurationError as e:
-        if _is_mongo_dns_resolution_error(e):
-            logger.warning(
-                "Learning update skipped because MongoDB DNS resolution failed "
-                "for the isolated background client: %s",
-                e,
-            )
-        else:
-            logger.error(f"Learning thread fatal error: {e}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Learning thread fatal error: {e}", exc_info=True)
-    finally:
-        if loop is not None:
-            try:
-                loop.close()
-            except Exception:
-                pass
-
-
-async def _learning_with_own_client() -> None:
-    """
-    Opens a dedicated AsyncIOMotorClient and scopes it to this coroutine via
-    a context-local database override so other event loops never see the
-    background thread's Motor client.
-    """
-    from motor.motor_asyncio import AsyncIOMotorClient
-    from app.config.database import override_db_context
-
-    try:
-        learn_client = AsyncIOMotorClient(settings.MONGODB_URI)
-    except ConfigurationError as e:
-        if _is_mongo_dns_resolution_error(e):
-            logger.warning(
-                "Learning update skipped because MongoDB URI resolution failed. "
-                "Verify DNS reachability for the Atlas SRV record or use a "
-                "non-SRV MongoDB URI. Error: %s",
-                e,
-            )
-            return
-        raise
-    learn_db = learn_client[settings.MONGODB_DB]
-
-    try:
-        with override_db_context(learn_db, learn_client):
-            await _trigger_learning_update_impl(learn_db)
-    except Exception as e:
-        logger.error(f"Learning update failed: {e}", exc_info=True)
-    finally:
-        try:
-            learn_client.close()
-        except Exception:
-            pass
-        logger.info("Learning: isolated Motor client closed")
-
-
-async def _trigger_learning_update_impl(db) -> None:
-    """Core ML learning logic. Receives db handle directly — no get_db() call."""
-
-    actual_results: Dict[str, str] = {}
-    group_statuses: Dict[str, str] = {}
-    group_hit_rates: List[float] = []
-    async for doc in db.actual_results.find({}):
-        actual_results[doc["match_id"]] = doc.get("actual_outcome", "")
-        if doc.get("group_status"):
-            group_statuses[doc["match_id"]] = doc.get("group_status")
-        if isinstance(doc.get("group_hit_rate"), (int, float)):
-            group_hit_rates.append(float(doc["group_hit_rate"]))
-
-    if not actual_results:
-        logger.info("Learning: no resolved results, skipping")
-        return
-
-    sport_records: Dict[str, List[Dict]] = {}
-    async for pred in db.predictions.find({
-        "match_id": {"$in": list(actual_results.keys())},
-        "deleted_at": None,
-    }):
-        mid    = pred.get("match_id")
-        actual = actual_results.get(mid)
-        if not actual:
-            continue
-        sport = pred.get("sport", "soccer")
-
-        if sport not in _SUPPORTED_ML_SPORTS:
-            logger.debug(f"Learning: skipping unsupported sport '{sport}'")
-            continue
-
-        snap     = await db.feature_snapshots.find_one({"match_id": mid})
-        features = (
-            snap.get("features", pred.get("features_used", {}))
-            if snap else pred.get("features_used", {})
-        )
-        sport_records.setdefault(sport, []).append({
-            "match_id":             mid,
-            "features":             features,
-            "actual_outcome":       actual,
-            "predicted_outcome":    pred.get("predicted_outcome"),
-            "home_win_probability": pred.get("home_win_probability"),
-            "draw_probability":     pred.get("draw_probability", 0.0),
-            "away_win_probability": pred.get("away_win_probability"),
-            "match_date":           snap.get("match_date", "") if snap else "",
-        })
-
-    for sport, records in sport_records.items():
-        try:
-            train_records, eval_records = _split_learning_records(records)
-            retrain_result = prediction_engine.retrain(train_records, sport=sport)
-            metrics = prediction_engine.evaluate(eval_records, sport=sport) if eval_records else {}
-            if metrics:
-                group_lost_count = sum(
-                    1 for rec in records
-                    if group_statuses.get(rec.get("match_id", "")) == "lost"
-                )
-                await db.model_metrics.insert_one({
-                    "model_version":  prediction_engine.model_version,
-                    "sport":          sport,
-                    "date":           now_wat().isoformat(),
-                    **{k: metrics.get(k, 0) for k in (
-                        "brier_score", "log_loss", "calibration_error",
-                        "accuracy", "total_predictions", "ml_weight",
-                        "n_training_samples",
-                    )},
-                    "group_lost_samples": group_lost_count,
-                    "avg_group_hit_rate": round(sum(group_hit_rates) / len(group_hit_rates), 4) if group_hit_rates else None,
-                    "retrain_result": retrain_result,
-                    "eval_holdout_size": len(eval_records),
-                })
-                logger.info(f"[{sport}] Learning complete: {metrics}")
-            else:
-                logger.info(
-                    "[%s] Learning complete — retrained on %s records, holdout too small for evaluation",
-                    sport,
-                    len(train_records),
-                )
-        except Exception as e:
-            logger.error(f"[{sport}] Retrain/evaluate failed: {e}", exc_info=True)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Public endpoint trigger (POST /api/predictions/learn/trigger)
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def trigger_learning_update() -> None:
-    """Same isolated-thread pattern so the manual trigger also works cleanly."""
-    t = threading.Thread(target=_run_learning_in_thread, daemon=True)
-    t.start()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

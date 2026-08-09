@@ -47,6 +47,8 @@ def _predicted_btts_from_prediction(prediction: dict) -> str | None:
 def _empty_market_accuracy(label: str) -> dict:
     return {
         "label": label,
+        "available": False,
+        "reason": "no resolved predictions for this market yet",
         "total": 0,
         "correct": 0,
         "miss": 0,
@@ -65,6 +67,8 @@ def _empty_market_accuracy(label: str) -> dict:
 def _finalize_market_accuracy(stats: dict) -> dict:
     if stats["total"]:
         stats["accuracy"] = round(stats["correct"] / stats["total"], 4)
+        stats["available"] = True
+        stats["reason"] = None
 
     for bucket in stats["by_prediction"].values():
         if bucket["total"]:
@@ -707,8 +711,7 @@ async def increment_quota(calls: int = 1):
     budget = int(live.get("budget", 200))
 
     existing_primary = await db.serper_quota.find_one({"_id": doc_id})
-    existing_legacy  = await db.serpapi_quota.find_one({"_id": doc_id})
-    existing = existing_primary or existing_legacy
+    existing = existing_primary
     current_used = existing.get("used", 0) if existing else 0
     new_used  = max(current_used, int(live.get("used", 0))) + calls
     remaining = max(budget - new_used, 0)
@@ -719,5 +722,4 @@ async def increment_quota(calls: int = 1):
     }
 
     await db.serper_quota.replace_one({"_id": doc_id}, payload, upsert=True)
-    await db.serpapi_quota.replace_one({"_id": doc_id}, payload, upsert=True)
     return {"used": new_used, "budget": budget, "remaining": remaining}

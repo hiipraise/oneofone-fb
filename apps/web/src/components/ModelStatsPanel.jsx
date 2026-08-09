@@ -1,5 +1,7 @@
 // src/components/ModelStatsPanel.jsx
 import React from "react";
+import { usePerformanceHistory } from "../hooks/useData";
+import TrendSparkline from "../charts/TrendSparkline";
 import { getMlWeightState, ML_ACTIVATION_THRESHOLD } from "./MlWeightLogic";
 import {
   getCalibrationMethod,
@@ -8,13 +10,14 @@ import {
   SAMPLE_THRESHOLD_CALIBRATION,
 } from "./MlWeightLogic";
 
-function StatBlock({ label, value, sub, colorClass = "text-white" }) {
+function StatBlock({ label, value, sub, colorClass = "text-white", spark }) {
   return (
     <div className="p-4 border border-brand-midgray bg-brand-gray rounded-sm">
       <p className="label mb-1">{label}</p>
       <p className={`font-display text-xl tabular-nums ${colorClass}`}>
         {value ?? <span className="text-gray-700">—</span>}
       </p>
+      {spark && <div className="mt-2">{spark}</div>}
       {sub && <p className="font-display text-xs text-gray-600 mt-1">{sub}</p>}
     </div>
   );
@@ -127,6 +130,9 @@ const SPORT_DOTS = {
 const DEFAULT_SPORTS = ["soccer"];
 
 export default function ModelStatsPanel({ summary, loading }) {
+  // Real performance-history trend, used for sparklines under key metric cards.
+  const { data: perfHistory = [] } = usePerformanceHistory(30);
+
   if (loading) return <Skeleton />;
 
   if (!summary) {
@@ -221,6 +227,13 @@ export default function ModelStatsPanel({ summary, loading }) {
           value={fmt4dp(m.brier_score)}
           sub="↓ Better (0=perfect)"
           colorClass={brierColor}
+          spark={
+            <TrendSparkline
+              rows={perfHistory}
+              seriesKey="brier_score"
+              color="#dc2626"
+            />
+          }
         />
         <StatBlock
           label="LOG LOSS"
@@ -243,6 +256,13 @@ export default function ModelStatsPanel({ summary, loading }) {
           value={fmtPct(m.accuracy)}
           sub="Binary classification"
           colorClass={accColor}
+          spark={
+            <TrendSparkline
+              rows={perfHistory}
+              seriesKey="accuracy"
+              color="#16a34a"
+            />
+          }
         />
         <StatBlock
           label="PREDICTIONS"

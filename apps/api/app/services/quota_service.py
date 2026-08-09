@@ -7,15 +7,8 @@ from app.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
-def _serper_quota_collection(db):
-    """
-    Preferred collection name is `serper_quota`.
-    We mirror writes to `serpapi_quota` for one release window.
-    """
-    return db.serper_quota
-
-
 async def record_serper_calls(n: int = 1) -> None:
+    """Increment the current month's Serper usage in Mongo (best effort)."""
     try:
         from app.config.database import get_db
         db = get_db()
@@ -28,15 +21,9 @@ async def record_serper_calls(n: int = 1) -> None:
             "$setOnInsert": {"month": month_key, "budget": settings.SERPAPI_MONTHLY_BUDGET},
         }
 
-        await _serper_quota_collection(db).update_one({"_id": doc_id}, payload, upsert=True)
-        await db.serpapi_quota.update_one({"_id": doc_id}, payload, upsert=True)
+        await db.serper_quota.update_one({"_id": doc_id}, payload, upsert=True)
     except Exception as e:
         logger.warning(f"quota tracking failed: {e}")
-
-
-# Backward-compatible wrapper (one release window)
-async def record_serpapi_calls(n: int = 1) -> None:
-    await record_serper_calls(n=n)
 
 
 async def get_persisted_quota() -> dict:
@@ -59,14 +46,12 @@ async def get_persisted_quota() -> dict:
         from app.config.database import get_db
         db = get_db()
 
-        primary = await _serper_quota_collection(db).find_one({"_id": f"quota:{month_key}"})
-        legacy = await db.serpapi_quota.find_one({"_id": f"quota:{month_key}"})
+        primary = await db.serper_quota.find_one({"_id": f"quota:{month_key}"})
 
-        docs = [d for d in [primary, legacy] if d]
-        if docs:
-            used = max(int(d.get("used", 0)) for d in docs)
-            budget = max(
-                int(d.get("budget", settings.SERPAPI_MONTHLY_BUDGET)) for d in docs
+        if primary:
+            used = int(primary.get("used", 0))
+            budget = int(
+                primary.get("budget", settings.SERPAPI_MONTHLY_BUDGET)
             )
             used = max(used, int(live.get("used", 0)))
             budget = max(budget, int(live.get("budget", settings.SERPAPI_MONTHLY_BUDGET)))

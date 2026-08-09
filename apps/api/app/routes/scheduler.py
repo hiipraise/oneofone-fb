@@ -8,20 +8,23 @@ from app.utils.timezone import WAT
 from typing import List, Optional
 
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config.database import get_db
 from app.config.settings import settings
-from app.scheduler.daily_scheduler import scheduler, run_daily_predictions, _SUPPORTED_SPORTS
+from app.scheduler.daily_scheduler import (
+    scheduler,
+    run_daily_predictions,
+    _SUPPORTED_SPORTS,
+    SCHEDULER_SETTINGS_ID,
+    _set_jobs_paused,
+)
+from app.utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-
-
-SCHEDULER_SETTINGS_ID = "singleton"
-SCHEDULER_JOB_IDS = ("daily_predictions", "result_resolution")
 
 def _require_scheduler_key(x_scheduler_key: Optional[str] = Header(None)) -> None:
     if not settings.SCHEDULER_ADMIN_KEY:
@@ -39,16 +42,6 @@ async def _scheduler_enabled(db) -> bool:
         )
         return True
     return bool(doc.get("enabled", True))
-
-def _set_jobs_paused(enabled: bool) -> None:
-    for job_id in SCHEDULER_JOB_IDS:
-        try:
-            if enabled:
-                scheduler.resume_job(job_id)
-            else:
-                scheduler.pause_job(job_id)
-        except Exception as exc:
-            logger.warning("Could not %s scheduler job %s: %s", "resume" if enabled else "pause", job_id, exc)
 
 def _normalize_timestamp_iso(value) -> Optional[str]:
     """Return timestamps as ISO-8601 strings (or None when absent)."""
@@ -221,7 +214,8 @@ async def ping_scheduler():
     return {"status": "ok", "scheduler_enabled": enabled, "timestamp": datetime.now(WAT).isoformat()}
 
 @router.post("/enable")
-async def enable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+@limiter.limit("5/minute")
+async def enable_scheduler(request: Request, x_scheduler_key: Optional[str] = Header(None)):
     _require_scheduler_key(x_scheduler_key)
     db = _require_db()
     await db.scheduler_settings.update_one({"_id": SCHEDULER_SETTINGS_ID}, {"$set": {"enabled": True, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
@@ -229,7 +223,8 @@ async def enable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
     return {"scheduler_enabled": True}
 
 @router.post("/disable")
-async def disable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+@limiter.limit("5/minute")
+async def disable_scheduler(request: Request, x_scheduler_key: Optional[str] = Header(None)):
     _require_scheduler_key(x_scheduler_key)
     db = _require_db()
     await db.scheduler_settings.update_one({"_id": SCHEDULER_SETTINGS_ID}, {"$set": {"enabled": False, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
@@ -237,7 +232,8 @@ async def disable_scheduler(x_scheduler_key: Optional[str] = Header(None)):
     return {"scheduler_enabled": False}
 
 @router.post("/trigger")
-async def trigger_scheduler(x_scheduler_key: Optional[str] = Header(None)):
+@limiter.limit("5/minute")
+async def trigger_scheduler(request: Request, x_scheduler_key: Optional[str] = Header(None)):
     _require_scheduler_key(x_scheduler_key)
     """Manually fire the daily prediction job (runs in background thread)."""
     if not scheduler.running:
@@ -460,8 +456,10 @@ async def get_today_fixtures(
 
 
 @router.post("/trigger-resolution")
-async def trigger_resolution():
+@limiter.limit("5/minute")
+async def trigger_resolution(request: Request, x_scheduler_key: Optional[str] = Header(None)):
     """Manually fire the result auto-resolution job."""
+    _require_scheduler_key(x_scheduler_key)
     if not scheduler.running:
         raise HTTPException(status_code=503, detail="Scheduler is not running")
 

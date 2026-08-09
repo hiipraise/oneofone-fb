@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any
 import requests
 
 from app.config.settings import settings
-from app.services.sport_key_catalog import SPORT_KEYS
+from app.services.sport_key_catalog import SOCCER_SPORT_KEYS
 from app.services.web_search_service import _cache_key, _get_cached, _set_cache
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ def fetch_available_leagues(sport: str) -> List[Dict]:
         logger.error(f"Odds API /sports error: {e}")
         return []
 
-    known = set(SPORT_KEYS.get(sport.lower(), []))
+    known = set(SOCCER_SPORT_KEYS) if sport.lower() == "soccer" else set()
     kws = _sport_keywords(sport)
     leagues = [
         {
@@ -140,7 +140,7 @@ def search_fixtures(
     if not settings.ODDS_API_KEY:
         return None
 
-    for sport_key in SPORT_KEYS.get(sport.lower(), []):
+    for sport_key in (SOCCER_SPORT_KEYS if sport.lower() == "soccer" else []):
         result = _search_in_sport_key(home_team, away_team, sport_key, date)
         if result:
             _set_cache(ck, result)
@@ -148,8 +148,9 @@ def search_fixtures(
             return result
 
     # Dynamic fallback
+    known_soccer = set(SOCCER_SPORT_KEYS)
     for sport_key in _dynamic_sport_keys(sport):
-        if sport_key in SPORT_KEYS.get(sport.lower(), []):
+        if sport.lower() == "soccer" and sport_key in known_soccer:
             continue
         result = _search_in_sport_key(home_team, away_team, sport_key, date)
         if result:
@@ -288,7 +289,7 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
         return []
 
     sport = sport.lower()
-    if sport not in SPORT_KEYS:
+    if sport != "soccer":
         logger.warning(f"Unsupported sport for fixture fetch: {sport}")
         return []
 
@@ -298,7 +299,7 @@ def fetch_today_fixtures(sport: str = "soccer") -> List[Dict]:
     fixtures: List[Dict] = []
     seen: set = set()
 
-    for sport_key in SPORT_KEYS[sport][:8]:
+    for sport_key in SOCCER_SPORT_KEYS[:8]:
         try:
             resp = requests.get(
                 f"{ODDS_API_BASE}/sports/{sport_key}/events",

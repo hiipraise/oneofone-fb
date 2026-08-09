@@ -98,7 +98,7 @@ export default function Dashboard() {
           </Link>
         </div>
         {predsLoading ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {[...Array(3)].map((_, i) => (
               <div key={i} className="card p-4 animate-pulse">
                 <div className="h-3 bg-brand-midgray rounded w-32 mb-3" />
@@ -108,7 +108,7 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {recentPredictions.map((pred, i) => (
               <PredictionCard
                 key={pred.match_id || i}

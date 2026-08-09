@@ -148,6 +148,8 @@ class MarketAccuracyAnalyzer:
         return {
             "name": self.MARKET_TYPES["gg"],
             "market_type": "gg",
+            "available": total > 0,
+            "reason": None if total > 0 else "no resolved predictions with a BTTS pick yet",
             "total_predictions": total,
             "correct_predictions": correct,
             "accuracy": accuracy,
@@ -258,6 +260,8 @@ class MarketAccuracyAnalyzer:
         return {
             "name": self.MARKET_TYPES["corners"],
             "market_type": "corners",
+            "available": total > 0,
+            "reason": None if total > 0 else "no resolved matches with stored corner totals yet",
             "total_predictions": total,
             "correct_predictions": correct,
             "accuracy": accuracy,
@@ -351,6 +355,8 @@ class MarketAccuracyAnalyzer:
         return {
             "name": self.MARKET_TYPES["ou"],
             "market_type": "ou",
+            "available": overall_total > 0,
+            "reason": None if overall_total > 0 else "no resolved predictions with an O/U pick yet",
             "total_predictions": overall_total,
             "correct_predictions": overall_correct,
             "accuracy": overall_accuracy,

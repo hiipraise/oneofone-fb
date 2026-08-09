@@ -1,11 +1,11 @@
 # app/services/web_search_service.py
 """
-Web Search & Data Service
+Web Search & Data Service — orchestration layer (Sprint 5.3 file split).
 
 Search provider hierarchy (quota-free to quota-heavy):
-  1. ESPN public API          — free, no key, no quota
+  1. ESPN public API          — free, no key, no quota   (espn_service.py)
   2. Odds API                 — free tier, no quota impact
-  3. Serper.dev               — 2,500 free searches/month (10× SerpAPI)
+  3. Serper.dev               — 2,500 free searches/month (search_providers.py)
   4. DuckDuckGo (ddgs)        — unlimited fallback, no key required
   5. Statistical defaults     — last resort
 
@@ -14,23 +14,46 @@ SerpAPI has been removed entirely. Add to .env:
 
 Budget tracking now reflects Serper.dev's 2,500/month limit.
 DuckDuckGo calls are NOT quota-counted (they're free).
+
+Split responsibilities (Sprint 5.3):
+  - cache_utils.py      — shared in-memory cache
+  - search_providers.py — Serper/DuckDuckGo calls + monthly quota
+  - espn_service.py     — ESPN public API lookups
+  - THIS FILE           — orchestration: combines search + ESPN into the
+                          public team/h2h/venue/odds fetchers, and
+                          re-exports the split names so existing import
+                          sites keep working unchanged.
 """
-import json
-import asyncio
 import logging
 import re
-import time
-import hashlib
-import threading
-from datetime import datetime
-from app.utils.timezone import now_wat
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import requests
 
 from app.config.settings import settings
-from app.services.sport_key_catalog import SPORT_KEYS
+from app.services.cache_utils import (
+    CACHE_TTL_LONG,
+    CACHE_TTL_MEDIUM,
+    CACHE_TTL_SHORT,
+    _cache_key,
+    _get_cached,
+    _set_cache,
+)
+from app.services.espn_service import (
+    ESPN_BASE,
+    ESPN_SPORT_MAP,
+    _SOCCER_ESPN_LEAGUES,
+    _espn_team_record,
+    _espn_team_search,
+)
+from app.services.search_providers import (
+    get_serper_usage,
+    search_web,
+)
+from app.services.sport_key_catalog import SOCCER_SPORT_KEYS
+from app.services.scraping_service import fetch_openligadb_matches
+from app.utils.timezone import now_wat
 
 logger = logging.getLogger(__name__)
 
@@ -47,478 +70,34 @@ def _coerce_sport_to_supported(sport: Optional[str]) -> str:
         s = ""
     return "soccer"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Cache configuration  (unchanged — stable interface)
-# ─────────────────────────────────────────────────────────────────────────────
-
-CACHE_TTL_SHORT  = 3_600   #  1 h
-CACHE_TTL_MEDIUM = 21_600  #  6 h
-CACHE_TTL_LONG   = 86_400  # 24 h
-
-# NOTE:
-# File-based cache/quota state causes drift across pods and serverless instances.
-# Keep runtime state in memory by default (portable + free), and let Mongo-backed
-# quota_service provide persisted monthly accounting for production dashboards.
-ENABLE_FILE_CACHE = False
-
-_mem_cache: Dict[str, Dict] = {}
-_quota_state: Dict[str, Any] = {"month": "", "count": 0}
-
-
-def _prune_cache() -> None:
-    now = time.time()
-    expired_keys = [
-        key for key, entry in _mem_cache.items()
-        if now - entry.get("ts", now) >= entry.get("ttl", CACHE_TTL_MEDIUM)
-    ]
-    for key in expired_keys:
-        _mem_cache.pop(key, None)
-
-    max_entries = max(int(getattr(settings, "SEARCH_CACHE_MAX_ENTRIES", 750)), 1)
-    if len(_mem_cache) > max_entries:
-        overflow = len(_mem_cache) - max_entries
-        for key in list(_mem_cache.keys())[:overflow]:
-            _mem_cache.pop(key, None)
-
-
-def _cache_key(ns: str, params: Optional[dict] = None) -> str:
-    return hashlib.md5((ns + str(sorted((params or {}).items()))).encode()).hexdigest()
-
-
-def _get_cached(key: str) -> Optional[Any]:
-    _prune_cache()
-    entry = _mem_cache.get(key)
-    if entry and time.time() - entry["ts"] < entry.get("ttl", CACHE_TTL_MEDIUM):
-        return entry["data"]
-    if entry is not None:
-        _mem_cache.pop(key, None)
-    return None
-
-
-def _set_cache(key: str, data: Any, ttl: int = CACHE_TTL_MEDIUM) -> None:
-    _prune_cache()
-    _mem_cache[key] = {"ts": time.time(), "data": data, "ttl": ttl}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Monthly Serper.dev quota tracker  (2,500 free/month)
+# Text-analysis patterns for the search fallback path.
+#
+# FIXED DURING SPLIT (Sprint 5.3): these constants were referenced by
+# _parse_combined_text but never defined anywhere in the file, so the
+# search-fallback path would raise NameError whenever ESPN data was
+# unavailable for a team. They are defined here so the fallback actually
+# works; the surrounding heuristic is unchanged.
 # ─────────────────────────────────────────────────────────────────────────────
 
-MONTHLY_BUDGET = 2_400  # hard cap; keeps 100 buffer from the 2,500 free limit
-
-
-def _quota_load() -> Dict:
-    return dict(_quota_state)
-
-
-def _quota_save(data: Dict) -> None:
-    _quota_state.update(
-        {
-            "month": str(data.get("month", "")),
-            "count": int(data.get("count", 0)),
-        }
-    )
-
-
-def _quota_check() -> bool:
-    data = _quota_load()
-    current_month = now_wat().strftime("%Y-%m")
-    if data.get("month") != current_month:
-        data = {"month": current_month, "count": 0}
-    if data["count"] >= MONTHLY_BUDGET:
-        logger.warning(
-            f"Serper.dev monthly budget exhausted ({data['count']}/{MONTHLY_BUDGET}). "
-            "Falling back to DuckDuckGo."
-        )
-        return False
-    return True
-
-
-def _quota_increment() -> None:
-    data = _quota_load()
-    current_month = now_wat().strftime("%Y-%m")
-    if data.get("month") != current_month:
-        data = {"month": current_month, "count": 0}
-    data["count"] = data.get("count", 0) + 1
-    _quota_save(data)
-    logger.debug(f"Serper quota: {data['count']}/{MONTHLY_BUDGET} this month")
-    _persist_quota_increment_async()
-
-
-def _persist_quota_increment_async() -> None:
-    """
-    Mirror in-memory Serper usage to Mongo so dashboards stay accurate
-    across instances. Best effort only.
-    """
-    try:
-        from app.services.quota_service import record_serper_calls
-
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(record_serper_calls(1))
-            return
-        except RuntimeError:
-            pass
-
-        def _runner():
-            try:
-                asyncio.run(record_serper_calls(1))
-            except Exception as exc:
-                logger.debug(f"Serper quota persistence background task failed: {exc}")
-
-        threading.Thread(target=_runner, daemon=True).start()
-    except Exception as e:
-        logger.debug(f"Serper quota persistence skipped: {e}")
-
-
-def get_serper_usage() -> Dict:
-    """Return current Serper.dev monthly usage snapshot."""
-    data = _quota_load()
-    current_month = now_wat().strftime("%Y-%m")
-    if data.get("month") != current_month:
-        return {
-            "month": current_month, "used": 0,
-            "budget": MONTHLY_BUDGET, "remaining": MONTHLY_BUDGET,
-        }
-    return {
-        "month":     data["month"],
-        "used":      data["count"],
-        "budget":    MONTHLY_BUDGET,
-        "remaining": max(0, MONTHLY_BUDGET - data["count"]),
-    }
-
-
-def get_serpapi_usage() -> Dict:
-    """Backward-compatible wrapper. Use get_serper_usage()."""
-    return get_serper_usage()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DuckDuckGo fallback  (zero cost, no key, no quota)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _duckduckgo_html_search(query: str, num_results: int = 5) -> List[Dict]:
-    """
-    Lightweight DuckDuckGo HTML search that avoids multi-engine scraping.
-    This path is more stable in hosted environments where third-party engines
-    frequently return captchas/rate-limits.
-    """
-    try:
-        resp = requests.post(
-            "https://html.duckduckgo.com/html/",
-            data={"q": query},
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-                ),
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            logger.debug(
-                f"DuckDuckGo HTML returned {resp.status_code} for query [{query[:50]}]"
-            )
-            return []
-
-        html = resp.text
-        links = re.findall(
-            r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-            html,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        snippets = re.findall(
-            r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>|'
-            r'<div[^>]*class="result__snippet"[^>]*>(.*?)</div>',
-            html,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-
-        results: List[Dict] = []
-        for idx, (href, title_html) in enumerate(links[:num_results]):
-            raw_snippet = ""
-            if idx < len(snippets):
-                raw_snippet = snippets[idx][0] or snippets[idx][1]
-            title = re.sub(r"<[^>]+>", "", title_html).strip()
-            snippet = re.sub(r"<[^>]+>", "", raw_snippet).strip()
-            results.append(
-                {
-                    "title": title,
-                    "link": href,
-                    "snippet": snippet,
-                }
-            )
-        return results
-    except Exception as e:
-        logger.debug(f"DuckDuckGo HTML search error [{query[:50]}]: {e}")
-        return []
-
-
-def _duckduckgo_search(query: str, num_results: int = 5) -> List[Dict]:
-    """
-    Use the `duckduckgo-search` package as a free fallback.
-    Install: pip install duckduckgo-search
-    Completely free — no API key, no monthly limit.
-    Results are slightly less precise than Google but sufficient for sports context.
-    """
-    # Prefer the direct HTML endpoint first to avoid noisy multi-engine failures.
-    html_results = _duckduckgo_html_search(query=query, num_results=num_results)
-    if html_results:
-        return html_results
-
-    try:
-        DDGS = None
-        try:
-            from ddgs import DDGS as _DDGS  # package renamed from duckduckgo_search
-            DDGS = _DDGS
-        except ImportError:
-            from duckduckgo_search import DDGS as _DDGS
-            DDGS = _DDGS
-
-        with DDGS() as ddgs:
-            raw = list(ddgs.text(query, max_results=num_results))
-        return [
-            {
-                "title":   r.get("title", ""),
-                "link":    r.get("href", ""),
-                "snippet": r.get("body", ""),
-            }
-            for r in raw
-        ]
-    except ImportError:
-        logger.warning(
-            "No DuckDuckGo provider installed. "
-            "Run: pip install ddgs (or duckduckgo-search)."
-        )
-        return []
-    except Exception as e:
-        logger.warning(
-            f"DuckDuckGo search error [{query[:50]}]: {e} "
-            "(after HTML fallback path)"
-        )
-        return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Serper.dev  (primary paid search — 2,500 free/month)
-# ─────────────────────────────────────────────────────────────────────────────
-
-_serp_lock         = threading.Lock()
-_serp_last_call_ts = 0.0
-_MIN_CALL_INTERVAL = 0.5         # serper.dev handles higher throughput than SerpAPI
-_MAX_RETRIES       = 2
-_RETRY_BACKOFF     = [2.0, 5.0]
-
-
-def _throttle() -> None:
-    global _serp_last_call_ts
-    with _serp_lock:
-        elapsed = time.time() - _serp_last_call_ts
-        if elapsed < _MIN_CALL_INTERVAL:
-            time.sleep(_MIN_CALL_INTERVAL - elapsed)
-        _serp_last_call_ts = time.time()
-
-
-def _serper_search(query: str, num_results: int = 5) -> List[Dict]:
-    """
-    Serper.dev Google Search API.
-    Sign up free at https://serper.dev — 2,500 searches/month on the free plan.
-    Add SERPER_API_KEY=<key> to your .env file.
-    """
-    if not settings.SERPER_API_KEY:
-        return []
-
-    for attempt in range(_MAX_RETRIES + 1):
-        _throttle()
-        try:
-            resp = requests.post(
-                "https://google.serper.dev/search",
-                headers={
-                    "X-API-KEY":    settings.SERPER_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={"q": query, "num": num_results, "gl": "us", "hl": "en"},
-                timeout=12,
-            )
-
-            if resp.status_code == 429:
-                wait = _RETRY_BACKOFF[attempt] if attempt < len(_RETRY_BACKOFF) else _RETRY_BACKOFF[-1]
-                logger.warning(
-                    f"Serper 429 [{query[:50]}] — "
-                    f"attempt {attempt + 1}/{_MAX_RETRIES + 1}, retrying in {wait}s"
-                )
-                if attempt < _MAX_RETRIES:
-                    time.sleep(wait)
-                    continue
-                return []  # quota NOT charged
-
-            resp.raise_for_status()
-
-            data    = resp.json()
-            organic = data.get("organic", [])
-            results = [
-                {
-                    "title":   r.get("title", ""),
-                    "link":    r.get("link", ""),
-                    "snippet": r.get("snippet", ""),
-                }
-                for r in organic[:num_results]
-            ]
-
-            _quota_increment()
-            return results
-
-        except requests.exceptions.HTTPError as e:
-            logger.warning(f"Serper HTTP error [{query[:50]}]: {e}")
-            return []
-        except Exception as e:
-            logger.warning(f"Serper error [{query[:50]}]: {e}")
-            return []
-
-    return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Public search entry point  (replaces search_serpapi — same signature)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def search_web(query: str, num_results: int = 5) -> List[Dict]:
-    """
-    Primary web-search entry point.
-
-    Resolution order:
-      1. Memory/disk cache     — free, instant
-      2. Serper.dev            — 2,500 free searches/month (Google results)
-      3. DuckDuckGo fallback   — unlimited free (no key needed)
-    """
-    ck = _cache_key("search_v4", {"q": query.lower().strip(), "n": num_results})
-    cached = _get_cached(ck)
-    if cached is not None:
-        return cached  # cache hit — no quota consumed
-
-    results: List[Dict] = []
-
-    # ── Try Serper.dev first (quota-aware) ────────────────────────────────
-    if settings.SERPER_API_KEY and _quota_check():
-        results = _serper_search(query, num_results)
-
-    # ── Fallback to DuckDuckGo when Serper is unavailable or exhausted ────
-    if not results:
-        logger.info(f"Falling back to DuckDuckGo for: {query[:60]}")
-        results = _duckduckgo_search(query, num_results)
-
-    if results:
-        _set_cache(ck, results, ttl=CACHE_TTL_MEDIUM)
-
-    return results
-
-
-# Backward-compatible wrapper for one release window.
-def search_serpapi(query: str, num_results: int = 5) -> List[Dict]:
-    """Deprecated wrapper. Use search_web()."""
-    return search_web(query=query, num_results=num_results)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ESPN public API  (free — use aggressively before search)
-# ─────────────────────────────────────────────────────────────────────────────
-
-ESPN_SPORT_MAP = {
-    "soccer": ("soccer", "eng.1"),
-}
-ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
-_SOCCER_ESPN_LEAGUES = (
-    "eng.1", "eng.2", "esp.1", "esp.2", "ger.1", "ita.1", "fra.1",
-    "uefa.champions", "uefa.europa", "usa.1", "por.1", "ned.1",
-    "arg.1", "bra.1", "tur.1", "mex.1", "ksa.1",
+_WIN_PATTERNS = re.compile(
+    r"\b(?:won|wins|win|beat|beats|defeated|victory)\b", re.IGNORECASE
 )
-# Platform is soccer-only
-
-
-def _espn_team_search(team_name: str, sport: str) -> Optional[Dict]:
-    ck = _cache_key("espn_team_v2", {"t": team_name.lower(), "s": sport})
-    cached = _get_cached(ck)
-    if cached is not None:
-        return cached
-
-    espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
-    # Platform is soccer-only — default to soccer leagues for supported sport
-    leagues = _SOCCER_ESPN_LEAGUES if sport == "soccer" else (default_league,)
-    try:
-        tl = team_name.lower()
-        for league in leagues:
-            resp = requests.get(f"{ESPN_BASE}/{espn_sport}/{league}/teams", timeout=8)
-            if resp.status_code != 200:
-                continue
-            teams = resp.json().get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
-            for entry in teams:
-                t = entry.get("team", {})
-                names = [
-                    t.get("displayName", "").lower(),
-                    t.get("shortDisplayName", "").lower(),
-                    t.get("name", "").lower(),
-                    t.get("nickname", "").lower(),
-                ]
-                if any(tl in n or n in tl for n in names if n):
-                    found = dict(t)
-                    found["_league"] = league
-                    _set_cache(ck, found, ttl=CACHE_TTL_LONG)
-                    return found
-    except Exception as e:
-        logger.debug(f"ESPN team search [{sport}]: {e}")
-    return None
-
-
-def _espn_team_record(team_name: str, sport: str) -> Dict[str, Any]:
-    ck = _cache_key("espn_record_v2", {"t": team_name.lower(), "s": sport})
-    cached = _get_cached(ck)
-    if cached is not None:
-        return cached
-
-    result: Dict[str, Any] = {
-        "espn_win_pct": 0.5,
-        "ranking_signal": 0.5,
-        "espn_data_available": False,
-    }
-
-    team = _espn_team_search(team_name, sport)
-    if not team:
-        return result
-
-    team_id = team.get("id")
-    if not team_id:
-        return result
-
-    espn_sport, default_league = ESPN_SPORT_MAP.get(sport, ("soccer", "eng.1"))
-    league = team.get("_league", default_league)
-    try:
-        resp = requests.get(f"{ESPN_BASE}/{espn_sport}/{league}/teams/{team_id}", timeout=8)
-        if resp.status_code != 200:
-            return result
-
-        data = resp.json().get("team", {})
-        record = data.get("record", {}).get("items", [])
-        if record:
-            stats  = {s["name"]: s["value"] for s in record[0].get("stats", [])}
-            wins   = float(stats.get("wins", 0))
-            losses = float(stats.get("losses", 0))
-            total  = wins + losses + float(stats.get("ties", 0)) + float(stats.get("draws", 0))
-            if total > 0:
-                result["espn_win_pct"]        = float(min(wins / total, 1.0))
-                result["espn_data_available"] = True
-
-        standing   = data.get("standingSummary", "")
-        rank_match = re.search(r"(\d+)(st|nd|rd|th)", standing)
-        if rank_match:
-            rank = int(rank_match.group(1))
-            result["ranking_signal"] = float(np.clip(1.0 - (rank - 1) / 20.0, 0.05, 1.0))
-
-        _set_cache(ck, result, ttl=CACHE_TTL_MEDIUM)
-    except Exception as e:
-        logger.debug(f"ESPN record [{team_name}]: {e}")
-
-    return result
+_LOSS_PATTERNS = re.compile(
+    r"\b(?:lost|loses|lose|defeat|defeats|defeat by|loss)\b", re.IGNORECASE
+)
+_DRAW_PATTERNS = re.compile(
+    r"\b(?:drew|draw|draws|tied|tie)\b", re.IGNORECASE
+)
+_INJURY_KWS = [
+    "injured", "injury", "ruled out", "doubt", "sidelined",
+    "hamstring", "knee", "strain", "muscle", "absent",
+]
+_HIGH_IMPACT = [
+    "captain", "first-choice", "key player", "top scorer",
+    "starting xi", "suspended", "star player",
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -584,7 +163,6 @@ def _parse_combined_text(text: str, team_name: str, sport: str) -> Dict[str, Any
         out["clean_sheet_rate"]   = round(float((cs_rate or 28.0) / 100.0), 3)
 
     # Platform is soccer-only.
-
 
     return out
 
@@ -722,17 +300,20 @@ def fetch_venue_stats(home_team: str, sport: str) -> Dict[str, Any]:
     return result
 
 
-def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
+def fetch_team_stats(team_name: str, sport: str, league: Optional[str] = None) -> Dict[str, Any]:
     """
     Aggregate team stats.
 
     Priority:
       1. Cache (free)
       2. ESPN API (free, structured)
-      3. Free search/scraping fallbacks
+      3. Free search/scraping fallbacks (OpenLigaDB for German leagues)
       4. Combined search query (Serper.dev → DuckDuckGo fallback)
+
+    ``league`` is the optional fixture league name — used to decide whether
+    OpenLigaDB (free, German competitions) can enrich goals/form stats.
     """
-    ck = _cache_key("team_stats_v3", {"t": team_name.lower(), "s": sport})
+    ck = _cache_key("team_stats_v3", {"t": team_name.lower(), "s": sport, "l": (league or "").lower()})
     cached = _get_cached(ck)
     if cached is not None:
         return cached
@@ -754,6 +335,21 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
         stats["goals_conceded_avg"] = combined.get("goals_conceded_avg", 1.20)
         stats["clean_sheet_rate"] = combined.get("clean_sheet_rate", 0.28)
 
+    # OpenLigaDB enrichment (free source — German leagues): real scored-goal
+    # and clean-sheet averages replace the search-derived estimates when the
+    # fixture's league maps to a German competition. Best-effort; when the
+    # league is unknown/unreachable the ESPN/search defaults stay and
+    # `openligadb_available` is False so provenance stays honest.
+    if sport == "soccer":
+        olg = _openligadb_team_form(team_name, league, limit=8)
+        if olg.get("openligadb_available"):
+            stats["goals_scored_avg"]   = olg.get("goals_scored_avg", stats["goals_scored_avg"])
+            stats["goals_conceded_avg"] = olg.get("goals_conceded_avg", stats["goals_conceded_avg"])
+            stats["clean_sheet_rate"]   = olg.get("clean_sheet_rate", stats["clean_sheet_rate"])
+            stats["form_rating"]        = olg.get("form_rating", stats.get("form_rating", 0.5))
+            stats["recent_matches"]     = olg.get("recent_matches", 0)
+        stats["openligadb_available"] = bool(olg.get("openligadb_available"))
+
     # Platform is soccer-only.
 
     _set_cache(ck, stats, ttl=CACHE_TTL_MEDIUM)
@@ -765,7 +361,7 @@ def fetch_team_stats(team_name: str, sport: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _ODDS_SPORT_MAP = {
-    "soccer": SPORT_KEYS["soccer"],
+    "soccer": SOCCER_SPORT_KEYS,
 }
 
 
@@ -845,6 +441,183 @@ def fetch_betting_odds(home_team: str, away_team: str, sport: str) -> Dict[str, 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# OpenLigaDB enrichment  (free structured source — German leagues)
+#
+# Wired in Sprint 8: real scored-goal + form stats from OpenLigaDB (free,
+# no key) enrich the team-stats dict when the fixture's league is a known
+# German competition. Every lookup goes through scraping_service's in-memory
+# cache/pacing so we never hammer a free source. Best-effort only — when the
+# league is unknown or the API is unreachable, stats simply stay on the
+# existing ESPN/search-derived defaults and `openligadb_available` is False.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# OpenLigaDB league codes for the German competitions the API covers.
+# Keys are normalized (lowercase, spaces removed) fragments that appear in
+# request.league values from the Odds API / ESPN / frontend.
+_OPENLIGADB_LEAGUES = {
+    "bundesliga":        "bl1",
+    "2bundesliga":       "bl2",
+    "dfb":               "dfb",
+    "dfbpokal":          "dfb",
+    "regionalliga":      "rl",
+    "oberliga":          "ol",
+    "ligapokal":         "lp",
+}
+# League names that do NOT map to a German competition — never enrich from
+# OpenLigaDB for these (avoids attributing wrong league data to foreign teams).
+_NON_GERMAN_LEAGUE_MARKERS = (
+    "epl", "premier", "laliga", "seriea", "ligue", "eredivisie",
+    "primeira", "mls", "ligamx", "championsleague", "europaleague",
+    "conference", "superlig", "seriea", "j1", "sau" ,"austra", "brazil",
+    "argentina", "turkey", "scotland", "swiss", "belgian", "denmark",
+    "norway", "sweden",
+)
+
+
+def _openligadb_league_code(league: Optional[str]) -> Optional[str]:
+    """Map a free-text league name to an OpenLigaDB league code, or None."""
+    if not league:
+        return None
+    # Normalize ("2. Bundesliga" -> "2bundesliga", "Bundesliga" -> "bundesliga")
+    # and keep the leading division digit: "2. Bundesliga" is bl2, not bl1.
+    norm = re.sub(r"[^a-z0-9]", "", league.lower())
+    if not norm:
+        return None
+    division = ""
+    m = re.match(r"^(\d+)", norm)
+    if m:
+        division = m.group(1)
+        norm = norm[m.end():]
+    if not norm:
+        return None
+    if any(marker in norm for marker in _NON_GERMAN_LEAGUE_MARKERS):
+        return None
+    if division == "2" and "bundesliga" in norm:
+        return _OPENLIGADB_LEAGUES["2bundesliga"]
+    for fragment, code in _OPENLIGADB_LEAGUES.items():
+        if fragment in norm:
+            return code
+    # Unknown league — don't guess; a wrong league would feed wrong team stats.
+    return None
+
+
+_UMLAUT_MAP = {
+    "\u00e4": "ae", "\u00f6": "oe", "\u00fc": "ue", "\u00df": "ss",
+    "\u00c4": "ae", "\u00d6": "oe", "\u00dc": "ue",
+}
+
+
+def _normalize_team_name(name: str) -> tuple[str, str]:
+    """
+    Lowercase + transliterate umlauts (M\u00fcnchen -> muenchen) and return
+    (collapsed, tokens): ``collapsed`` is the digit/letter-only string used for
+    substring checks, ``tokens`` are the space-separated words for shared-token
+    matching (handles "Bayern Munich" vs "FC Bayern Muenchen").
+    """
+    n = name
+    for ch, repl in _UMLAUT_MAP.items():
+        n = n.replace(ch, repl)
+    spaced = re.sub(r"[^a-z0-9]+", " ", n.lower()).strip()
+    collapsed = spaced.replace(" ", "")
+    return collapsed, spaced
+
+
+def _team_matches(team_collapsed: str, team_tokens: str, target_collapsed: str, target_tokens: str) -> bool:
+    """
+    Substring OR shared-token match. Handles "Bayern Munich" vs
+    "FC Bayern Muenchen" (umlauts normalized) via the shared "bayern" token.
+    """
+    if not target_collapsed:
+        return False
+    if target_collapsed in team_collapsed or team_collapsed in target_collapsed:
+        return True
+    t_set = {t for t in team_tokens.split() if len(t) >= 3}
+    g_set = {t for t in target_tokens.split() if len(t) >= 3}
+    return bool(t_set & g_set)
+
+
+def _openligadb_team_form(
+    team_name: str,
+    league: Optional[str],
+    limit: int = 8,
+    season: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Best-effort recent-form/goals stats for a team from OpenLigaDB.
+
+    Returns {} when the league doesn't map, the API fails, or the team
+    cannot be matched in recent matches. ``season`` (e.g. 2023 = 2023/24)
+    is passed through to the scraper; defaults to the current season.
+    """
+    code = _openligadb_league_code(league)
+    if not code:
+        return {}
+
+    try:
+        result = fetch_openligadb_matches(code, season=season)
+    except Exception as exc:
+        logger.debug(f"OpenLigaDB fetch failed [{code}]: {exc}")
+        return {}
+    if not result or not result.available:
+        return {}
+
+    matches = (result.data or {}).get("matches") or []
+    if not matches:
+        return {}
+
+    tl_collapsed, tl_tokens = _normalize_team_name(team_name)
+    if not tl_collapsed:
+        return {}
+
+    scored, conceded, clean, played = [], [], 0, 0
+    for match in sorted(
+        matches,
+        key=lambda m: m.get("matchDateTime", ""),
+        reverse=True,
+    ):
+        home_c, home_t = _normalize_team_name(str(match.get("team1", {}).get("teamName", "")))
+        away_c, away_t = _normalize_team_name(str(match.get("team2", {}).get("teamName", "")))
+        if not (
+            _team_matches(home_c, home_t, tl_collapsed, tl_tokens)
+            or _team_matches(away_c, away_t, tl_collapsed, tl_tokens)
+        ):
+            continue
+        try:
+            hs = int(match.get("matchResults") and (match.get("matchResults")[-1] or {}).get("pointsTeam1", 0))
+            as_ = int(match.get("matchResults") and (match.get("matchResults")[-1] or {}).get("pointsTeam2", 0))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if _team_matches(home_c, home_t, tl_collapsed, tl_tokens):
+            scored.append(hs)
+            conceded.append(as_)
+            if as_ == 0:
+                clean += 1
+        else:
+            scored.append(as_)
+            conceded.append(hs)
+            if hs == 0:
+                clean += 1
+        played += 1
+        if played >= limit:
+            break
+
+    if not played:
+        return {}
+
+    wins = sum(1 for s, c in zip(scored, conceded) if s > c)
+    draws = sum(1 for s, c in zip(scored, conceded) if s == c)
+    form_rating = round((wins + 0.4 * draws) / played, 4)
+    return {
+        "openligadb_available": True,
+        "form_rating": form_rating,
+        "goals_scored_avg": round(sum(scored) / played, 2),
+        "goals_conceded_avg": round(sum(conceded) / played, 2),
+        "clean_sheet_rate": round(clean / played, 3),
+        "recent_matches": played,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -861,3 +634,41 @@ def _extract_float(text: str, pattern: str) -> Optional[float]:
         except (ValueError, IndexError):
             pass
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Re-exported public surface (Sprint 5.3 split)
+#
+# Existing import sites (scheduler/daily_scheduler.py, routes/metrics.py,
+# services/match_validation_service.py, services/prediction_service.py,
+# services/quota_service.py, routes/search.py) import the names below from
+# this module; they now resolve to the split modules. Kept verbatim so no
+# call site needs to change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from app.services.cache_utils import (  # noqa: E402,F401
+    CACHE_TTL_SHORT,
+    CACHE_TTL_MEDIUM,
+    CACHE_TTL_LONG,
+    _cache_key,
+    _get_cached,
+    _set_cache,
+)
+from app.services.espn_service import (  # noqa: E402,F401
+    ESPN_SPORT_MAP,
+    ESPN_BASE,
+    _SOCCER_ESPN_LEAGUES,
+    _espn_team_search,
+    _espn_team_record,
+)
+from app.services.search_providers import (  # noqa: E402,F401
+    MONTHLY_BUDGET,
+    get_serper_usage,
+    search_web,
+    _serper_search,
+    _duckduckgo_search,
+    _duckduckgo_html_search,
+    _throttle,
+    _quota_check,
+    _quota_increment,
+)

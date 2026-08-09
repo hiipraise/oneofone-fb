@@ -1,6 +1,6 @@
 # app/config/settings.py
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
@@ -10,9 +10,7 @@ class Settings(BaseSettings):
     MONGODB_DB: str  = "oneofone"
 
     # API Keys
-    SERPER_API_KEY: str = ""   # serper.dev — 2,500 free searches/month (replaces SerpAPI)
-    SERPAPI_KEY:    str = ""   # kept for backward compat; no longer used
-    GROQ_API_KEY:   str = ""
+    SERPER_API_KEY: str = ""   # serper.dev — 2,500 free searches/month
     ODDS_API_KEY:   str = ""
 
     # App
@@ -39,13 +37,14 @@ class Settings(BaseSettings):
     MODEL_VERSION:        str = "5.0.0"
     MIN_TRAINING_SAMPLES: int = 30
     CALIBRATION_METHOD:   str = "isotonic"
+    # Best-effort real expected-goals lookup (Understat, free) at prediction
+    # time; falls back to the heuristic when the source doesn't cover a fixture.
+    ENABLE_XG_SCRAPING:   bool = True
     # Supported sports for the platform (single-source-of-truth)
     SUPPORTED_SPORTS: list = ["soccer"]
 
-    # In-process cache and session memory caps
+    # In-process cache caps
     SEARCH_CACHE_MAX_ENTRIES: int = 750
-    CHAT_SESSION_TOPIC_LIMIT: int = 100
-    CHAT_SESSION_PREDICTION_LIMIT: int = 200
 
     # Platform report thresholds
     REPORT_ACCURACY_GOOD: float = 0.58
@@ -67,10 +66,6 @@ class Settings(BaseSettings):
     REQUESTS_PER_MINUTE:    int   = 30
     SCRAPING_DELAY_SECONDS: float = 1.5
 
-    # Chat memory
-    CHAT_HISTORY_LIMIT: int = 20
-    CHAT_MEMORY_WINDOW: int = 8
-
     @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", mode="before")
     @classmethod
     def parse_csv_lists(cls, value):
@@ -78,9 +73,15 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # extra="ignore" (not the pydantic default "forbid"): env vars that were
+    # removed from this model — e.g. RAPID_API_KEY (deleted in the Sprint 4.4
+    # cleanup) — may still be set in local shells, CI, or the Render env panel.
+    # Rejecting unknown vars would crash the API at boot, so ignore them.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 settings = Settings()

@@ -28,17 +28,20 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.config.database import get_db
 from app.config.settings import settings
 import time
-from app.services.web_search_service import get_serpapi_usage
-from app.services.quota_service import record_serpapi_calls
+from app.services.web_search_service import get_serper_usage
+from app.services.quota_service import record_serper_calls
 from app.services.result_resolver import resolve_results
 from app.services.match_validation_service import fetch_espn_today_fixtures
-from app.services.sport_key_catalog import SPORT_KEYS
+from app.services.sport_key_catalog import SOCCER_SPORT_KEYS
 
 logger = logging.getLogger(__name__)
 
 # ── Supported sports ──────────────────────────────────────────────────────────
 # Product scope: football/soccer only.
 _SUPPORTED_SPORTS: List[str] = ["soccer"]
+
+# Persisted enable/disable flag document id (mirrored by routes/scheduler.py).
+SCHEDULER_SETTINGS_ID = "singleton"
 
 # ── APScheduler instance (exported so scheduler_route can inspect it) ─────────
 scheduler = BackgroundScheduler(timezone="Africa/Lagos")
@@ -114,12 +117,12 @@ async def _fetch_today_fixtures(sport: str) -> List[Dict]:
     allowed_dates = {today}
 
     sport = sport.lower()
-    if sport not in SPORT_KEYS:
+    if sport != "soccer":
         logger.warning(f"[scheduler] Unsupported sport for fixture fetch: {sport}")
         return []
 
     now_utc = datetime.now(timezone.utc)
-    sport_keys = SPORT_KEYS[sport]
+    sport_keys = SOCCER_SPORT_KEYS
     should_fallback_to_espn = not bool(settings.ODDS_API_KEY)
 
     if settings.ODDS_API_KEY:
@@ -259,7 +262,7 @@ async def _run_predictions_async() -> None:
     run_start = datetime.now(WAT)
     await _log_to_db("INFO", f"Daily scheduler started — {run_start.strftime('%Y-%m-%d %H:%M WAT')}")
 
-    serper_before   = get_serpapi_usage()["used"]
+    serper_before   = get_serper_usage()["used"]
     total_generated = 0
     total_errors    = 0
 
@@ -300,7 +303,7 @@ async def _run_predictions_async() -> None:
                     if existing:
                         await _log_to_db("INFO", f"Skipping existing prediction: {fixture['home_team']} vs {fixture['away_team']}", sport=sport)
                         continue
-                    await generate_prediction(
+                    output = await generate_prediction(
                         home_team  = fixture["home_team"],
                         away_team  = fixture["away_team"],
                         sport      = sport,
@@ -309,6 +312,32 @@ async def _run_predictions_async() -> None:
                     )
                     sport_generated += 1
                     total_generated += 1
+
+                    # Best pick per extended market (Sprint 8): the prediction
+                    # engine computes ~15 markets per fixture; surface the top
+                    # selections in the scheduler log so a run reads like a
+                    # betting board, not just "prediction generated".
+                    # NOTE: read picks from the returned PredictionOutput —
+                    # fixtures from Odds API/ESPN carry fixture_id, not
+                    # match_id, so re-fetching by match_id would miss the doc.
+                    try:
+                        output_dict = getattr(output, "model_dump", lambda: {})() or {}
+                        picks = (output_dict.get("extended_markets") or {}).get("market_picks", [])
+                        if picks:
+                            picks_line = " · ".join(
+                                f"{p.get('market', '')}: {p.get('selection', '')} "
+                                f"{round(float(p.get('probability', 0)) * 100):.0f}%"
+                                for p in picks
+                            )
+                            await _log_to_db(
+                                "INFO",
+                                f"MARKET PICKS — {fixture['home_team']} vs {fixture['away_team']}: {picks_line}",
+                                sport=sport,
+                                count=len(picks),
+                                extra={"fixture": f"{fixture['home_team']} vs {fixture['away_team']}"},
+                            )
+                    except Exception as e:
+                        logger.debug(f"[scheduler] market picks log skipped: {e}")
                 except Exception as e:
                     sport_errors  += 1
                     total_errors  += 1
@@ -334,10 +363,10 @@ async def _run_predictions_async() -> None:
             await _log_to_db("ERROR", f"{sport} processing failed: {e}", sport=sport)
 
     # ── Persist Serper quota delta ────────────────────────────────────────────
-    serper_calls_made = get_serpapi_usage()["used"] - serper_before
+    serper_calls_made = get_serper_usage()["used"] - serper_before
     if serper_calls_made > 0:
         try:
-            await record_serpapi_calls(serper_calls_made)
+            await record_serper_calls(serper_calls_made)
             logger.info(f"[scheduler] Recorded {serper_calls_made} Serper calls to quota store")
         except Exception as e:
             logger.warning(f"[scheduler] Quota recording failed: {e}")
@@ -450,6 +479,41 @@ def run_result_resolution() -> None:
                 loop.close()
             except Exception:
                 pass
+
+
+# ── Persisted scheduler state (enable/disable survival across restarts) ─────
+
+def _set_jobs_paused(enabled: bool) -> None:
+    """Pause or resume the two scheduler jobs (daily_predictions, result_resolution)."""
+    for job_id in ("daily_predictions", "result_resolution"):
+        try:
+            if enabled:
+                scheduler.resume_job(job_id)
+            else:
+                scheduler.pause_job(job_id)
+        except Exception as exc:
+            logger.warning("Could not %s scheduler job %s: %s", "resume" if enabled else "pause", job_id, exc)
+
+
+async def apply_persisted_scheduler_state() -> None:
+    """Pause scheduler jobs on startup when the persisted enable flag is False.
+
+    /api/scheduler/disable persists ``enabled: False`` in the
+    ``scheduler_settings`` singleton doc. Render free-tier instances
+    cold-start frequently, so the flag must be re-applied on every boot —
+    otherwise a disabled scheduler silently re-enables itself after a restart.
+    """
+    db = get_db()
+    if db is None:
+        return
+    try:
+        doc = await db.scheduler_settings.find_one({"_id": SCHEDULER_SETTINGS_ID})
+    except Exception as exc:
+        logger.warning("[scheduler] Could not read persisted scheduler state: %s", exc)
+        return
+    if doc is not None and doc.get("enabled", True) is False:
+        _set_jobs_paused(False)
+        logger.info("[scheduler] Persisted state is disabled — jobs paused on startup")
 
 
 # ── APScheduler setup ─────────────────────────────────────────────────────────

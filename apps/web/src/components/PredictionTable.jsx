@@ -34,19 +34,46 @@ function resolutionStatus(pred, resolvedMatch) {
   return { icon: "❌", label: "Miss", className: "text-brand-redlight" };
 }
 
+// Inline mini bar + % cell (Sprint 2) — scanning the table feels like a board
+// of tickers rather than a spreadsheet of colored numbers.
 function pctCell(value, highlight = false) {
   const pct = Math.round((value || 0) * 100);
   const color = highlight
-    ? "text-white font-medium"
+    ? "#ffffff"
     : pct >= 60
-      ? "text-brand-greenlight"
+      ? "#22c55e"
       : pct >= 45
-        ? "text-yellow-500"
-        : "text-brand-redlight";
+        ? "#eab308"
+        : "#ef4444";
   return (
-    <span className={`font-display text-xs tabular-nums ${color}`}>{pct}%</span>
+    <div className="flex items-center gap-1.5 min-w-[72px]">
+      <div className="flex-1 h-1 bg-brand-darkgray rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+      <span
+        className="font-display text-xs tabular-nums w-8 text-right"
+        style={{ color }}
+      >
+        {pct}%
+      </span>
+    </div>
   );
 }
+
+// Mobile-only sort options (Sprint 6.16) — keys match the desktop table's
+// sortValue() keys; subset omits sport/draw which aren't shown on mobile cards.
+const MOBILE_SORT_OPTIONS = [
+  { key: "prediction_date", label: "DATE" },
+  { key: "match_id", label: "MATCH ID" },
+  { key: "home_team", label: "TEAM" },
+  { key: "predicted_outcome", label: "PICK" },
+  { key: "home_win_probability", label: "HOME%" },
+  { key: "away_win_probability", label: "AWAY%" },
+  { key: "confidence_score", label: "CONF" },
+];
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -205,6 +232,193 @@ export default function PredictionTable({
     </th>
   );
 
+  // Sprint 6.16 — shared row metadata used by both the md+ table and the
+  // deliberate mobile card-list fallback (below the md breakpoint).
+  const rowMeta = (pred) => {
+    const shortId = pred.match_id
+      ? pred.match_id.split("-").slice(0, 2).join("-").toUpperCase()
+      : "—";
+    const isHome = pred.predicted_outcome === "home_win";
+    const isAway = pred.predicted_outcome === "away_win";
+    const resolvedMatch = resolvedMatches[pred.match_id];
+    const status = resolutionStatus(pred, resolvedMatch);
+    const normalizedSport = (pred.sport || "").toLowerCase();
+    const engineStatusForSport =
+      engineStatusBySport && normalizedSport
+        ? engineStatusBySport[normalizedSport]
+        : null;
+    const isEngineActive =
+      typeof engineStatusForSport === "boolean"
+        ? engineStatusForSport
+        : pred.is_trained_model !== false;
+    return {
+      shortId,
+      isHome,
+      isAway,
+      resolvedMatch,
+      status,
+      isEngineActive,
+    };
+  };
+
+  // Mobile-only sort control (Sprint 6.16): the desktop sortable headers are
+  // hidden below md, so give the card list its own compact sort picker rather
+  // than silently dropping the capability.
+  const renderMobileSort = () => (
+    <div className="md:hidden flex items-center gap-2 px-4 py-2 border-b border-brand-midgray bg-brand-darkgray/60">
+      <span className="label">SORT</span>
+      <select
+        value={sortKey}
+        onChange={(e) => {
+          const key = e.target.value;
+          if (key !== sortKey) {
+            setSortKey(key);
+            setSortDir("desc");
+            setCurrentPage(1);
+            setExpandedId(null);
+          }
+        }}
+        className="flex-1 bg-brand-darkgray border border-brand-midgray text-white font-display text-xs px-2 py-1 rounded-sm outline-none"
+        aria-label="Sort predictions"
+      >
+        {MOBILE_SORT_OPTIONS.map((opt) => (
+          <option key={opt.key} value={opt.key}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+        className="font-display text-xs px-2 py-1 rounded-sm border border-brand-midgray text-gray-400 hover:text-white transition-colors"
+        title="Toggle sort direction"
+      >
+        {sortDir === "asc" ? "↑" : "↓"}
+      </button>
+    </div>
+  );
+
+  // Mobile-only card list (Sprint 6.16): below md the wide table is replaced
+  // by compact cards so scanning picks on a phone doesn't require horizontal
+  // scrolling. Table stays for md+. Rendered via a plain function call (not a
+  // JSX element) so it never creates an unstable component identity that would
+  // remount cards (and reset DeleteButton confirm state) on every re-render.
+  const renderMobileCards = () => (
+    <div className="md:hidden divide-y divide-brand-midgray">
+      {paginated.map((pred, i) => {
+        const meta = rowMeta(pred);
+        const isExpandedMobile = expandedId === pred.match_id;
+        return (
+          <div
+            key={pred.match_id || `card-${startIndex + i}`}
+            className="px-4 py-3 space-y-2.5"
+            onClick={() =>
+              setExpandedId(isExpandedMobile ? null : pred.match_id)
+            }
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-display text-xs text-white whitespace-nowrap overflow-hidden text-ellipsis">
+                  <span className={meta.isHome ? "text-brand-greenlight" : ""}>
+                    {pred.home_team}
+                  </span>
+                  <span className="text-gray-600 mx-1">vs</span>
+                  <span className={meta.isAway ? "text-brand-redlight" : ""}>
+                    {pred.away_team}
+                  </span>
+                </p>
+                <p className="font-display text-xs text-gray-700 mt-0.5 truncate">
+                  {pred.league || pred.match_id}
+                </p>
+              </div>
+              {outcomeTag(pred.predicted_outcome)}
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="label">HOME</span>
+                {pctCell(pred.home_win_probability, meta.isHome)}
+              </div>
+              {showSport && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="label">DRAW</span>
+                  {pctCell(pred.draw_probability)}
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <span className="label">AWAY</span>
+                {pctCell(pred.away_win_probability, meta.isAway)}
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="label">CONF</span>
+                {pctCell(pred.confidence_score)}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <div
+                className={`font-display text-xs flex items-center gap-1.5 ${meta.status.className}`}
+              >
+                <span>{meta.status.icon}</span>
+                <span>{meta.status.label}</span>
+                <span className="text-gray-700 ml-2">
+                  {pred.timestamp ? formatWatDate(pred.timestamp) : pred.match_date || "—"}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                <ResolveButton
+                  prediction={pred}
+                  onResolveRequest={onResolveRequest}
+                  isResolving={resolvingMatchId === pred.match_id}
+                />
+                <RePredictButton matchId={pred.match_id} onDone={onRefetch} />
+                <DeleteButton matchId={pred.match_id} onDeleted={handleDeleted} />
+              </div>
+            </div>
+
+            {isExpandedMobile && pred.match_id && (
+              <div
+                className="flex flex-col gap-1.5 border-t border-brand-midgray pt-2.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="label">FULL MATCH ID</span>
+                  <code className="font-display text-xs text-gray-400 bg-brand-gray px-2 py-1 rounded-sm break-all flex-1 min-w-0">
+                    {pred.match_id}
+                  </code>
+                  <CopyButton text={pred.match_id} />
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {pred.model_version && (
+                    <span className="font-display text-xs text-gray-600">
+                      Model v{pred.model_version}
+                      <span
+                        className={`ml-2 ${meta.isEngineActive ? "text-brand-greenlight" : "text-yellow-600"}`}
+                      >
+                        {meta.isEngineActive ? "ML ACTIVE" : "PRIOR MODE"}
+                      </span>
+                    </span>
+                  )}
+                  {pred.confidence_interval_low != null && (
+                    <span className="font-display text-xs text-gray-600">
+                      CI: {Math.round(pred.confidence_interval_low * 100)}%–
+                      {Math.round(pred.confidence_interval_high * 100)}%
+                    </span>
+                  )}
+                  {meta.resolvedMatch?.actual_outcome && (
+                    <span className={`font-display text-xs ${meta.status.className}`}>
+                      {meta.status.icon} Actual:{" "}
+                      {meta.resolvedMatch.actual_outcome.replace("_", " ").toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   if (!items.length) {
     return (
       <div className="card p-10 text-center">
@@ -220,7 +434,9 @@ export default function PredictionTable({
 
   return (
     <div className="card overflow-hidden">
-      <div className="overflow-x-auto">
+      {renderMobileSort()}
+      <div className="md:hidden">{renderMobileCards()}</div>
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full">
           <thead className="border-b border-brand-midgray bg-brand-darkgray">
             <tr>

@@ -22,7 +22,9 @@ function safeNumber(value) {
 }
 
 export default function PerformanceChart() {
-  const { data: performanceHistory, loading, error } = usePerformanceHistory(30)
+  // 90-day window matches the useData.js hook default and the backend default.
+  // (Resolved matches older than 30 days used to keep this chart empty.)
+  const { data: performanceHistory, loading, error } = usePerformanceHistory(90)
 
   const { labels, brierData, logLossData, accuracyData } = useMemo(() => {
     const sorted = [...performanceHistory]

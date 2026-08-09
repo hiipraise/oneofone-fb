@@ -22,6 +22,26 @@ function Prob({ value, label }) {
   );
 }
 
+// Compact over/under split bar (Sprint 2) — visual indicator per market row.
+function MiniSplitBar({ over, under }) {
+  const oPct = Math.round((over || 0) * 100);
+  const uPct = Math.round((under || 0) * 100);
+  const total = oPct + uPct || 1;
+  const oShare = Math.round((oPct / total) * 100);
+  return (
+    <div
+      className="flex h-1.5 w-20 rounded-full overflow-hidden bg-brand-darkgray"
+      title={`Over ${oPct}% / Under ${uPct}%`}
+    >
+      <div className="h-full bg-brand-green" style={{ width: `${oShare}%` }} />
+      <div
+        className="h-full bg-brand-red"
+        style={{ width: `${100 - oShare}%` }}
+      />
+    </div>
+  );
+}
+
 function OURow({ label, over, under }) {
   if (over == null && under == null) return null;
   const oPct = Math.round((over || 0) * 100);
@@ -41,6 +61,9 @@ function OURow({ label, over, under }) {
   return (
     <tr className="border-b border-brand-midgray hover:bg-brand-gray transition-colors">
       <td className="px-3 py-2 font-display text-xs text-gray-500">{label}</td>
+      <td className="px-3 py-2">
+        <MiniSplitBar over={over} under={under} />
+      </td>
       <td
         className={`px-3 py-2 font-display text-xs text-right tabular-nums ${oCol}`}
       >
@@ -84,6 +107,7 @@ function OUTable({ data, lines, labelFn, title }) {
           <thead>
             <tr className="border-b border-brand-midgray bg-brand-darkgray">
               <th className="text-left label px-3 py-2">LINE</th>
+              <th className="text-left label px-3 py-2">SPLIT</th>
               <th className="text-right label px-3 py-2">OVER</th>
               <th className="text-right label px-3 py-2">UNDER</th>
             </tr>
@@ -248,6 +272,14 @@ export default function ExtendedMarketsPanel({ markets, sport }) {
               <p className="font-display text-xs mt-1 text-brand-greenlight tabular-nums">
                 {Math.round((pick.probability || 0) * 100)}%
               </p>
+              <div className="mt-2 h-1 bg-brand-darkgray rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-brand-green rounded-full"
+                  style={{
+                    width: `${Math.min(Math.round((pick.probability || 0) * 100), 100)}%`,
+                  }}
+                />
+              </div>
             </div>
           ))}
         </div>

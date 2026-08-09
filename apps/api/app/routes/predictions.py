@@ -2,7 +2,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from app.schemas.prediction_schema import PredictionRequest, PredictionOutput, ActualResultInput
 from app.services.prediction_service import (
     create_prediction, get_predictions, get_prediction_by_id,
@@ -22,15 +22,17 @@ from app.config.api_contract import (
     TEAM_NAME_MAX_LENGTH,
 )
 from app.config.database import get_db
+from app.utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/", response_model=PredictionOutput)
-async def generate_prediction(request: PredictionRequest):
+@limiter.limit("10/minute")
+async def generate_prediction(request: Request, payload: PredictionRequest):
     try:
-        return await create_prediction(request)
+        return await create_prediction(payload)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -163,7 +165,10 @@ async def submit_result(payload: ActualResultInput):
 
 
 @router.post("/learn/trigger")
-async def trigger_learning():
+# Deliberately rate-limit-only (no shared-secret header): Sprint 5.1 scoped
+# auth to scheduler endpoints. Fires a full retrain, so 5/min caps abuse.
+@limiter.limit("5/minute")
+async def trigger_learning(request: Request):
     try:
         await trigger_learning_update()
         return {"status": "learning_triggered"}

@@ -114,7 +114,7 @@ export const getSchedulerLogs = (limit = 50) =>
   api.get("/scheduler/logs", { params: { limit } });
 export const getTodayFixtures = () => api.get("/scheduler/fixtures/today");
 export const triggerResolution = () =>
-  api.post("/scheduler/trigger-resolution");
+  api.post("/scheduler/trigger-resolution", undefined, schedulerAuth());
 
 // ── Health ───────────────────────────────────────────────────────────────────
 export const healthCheck = () =>

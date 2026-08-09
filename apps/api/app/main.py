@@ -13,10 +13,19 @@ from fastapi import Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
 from app.config.settings import settings
 from app.config.database import connect_db, disconnect_db, get_db
-from app.scheduler.daily_scheduler import scheduler as daily_scheduler, start_scheduler, stop_scheduler
+from app.scheduler.daily_scheduler import (
+    scheduler as daily_scheduler,
+    start_scheduler,
+    stop_scheduler,
+    apply_persisted_scheduler_state,
+)
 from app.ml.prediction_engine import get_current_model_version
+from app.utils.rate_limit import limiter
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 from app.routes import predictions, metrics, results, search, scheduler as scheduler_routes, meta
@@ -37,6 +46,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting 1/1 Sports Prediction Engine…")
     await connect_db()
     start_scheduler()
+    # A scheduler disabled via /api/scheduler/disable must stay disabled across
+    # Render free-tier cold starts — re-apply the persisted flag on every boot.
+    await apply_persisted_scheduler_state()
     logger.info("Startup complete.")
     yield
     # Shutdown
@@ -53,6 +65,9 @@ app = FastAPI(
     version     = get_current_model_version(),
     lifespan    = lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     TrustedHostMiddleware,

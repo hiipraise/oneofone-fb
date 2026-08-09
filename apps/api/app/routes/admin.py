@@ -40,21 +40,29 @@ async def enrich_corners(limit: int = Query(200, ge=1, le=2000)):
     Uses the currently configured free corner-stat fallback.
     """
     db = get_db()
-    from app.services.result_resolver import _fetch_corner_stats
+    from app.services.result_resolver import (
+        _fetch_completed_scores,
+        _fetch_corner_stats,
+    )
 
     updated = 0
     scanned = 0
+    # Fetch the ESPN scoreboard ONCE per backfill (not per doc) — a full
+    # backfill of N matches otherwise fires N × leagues × dates requests.
+    completed_games = _fetch_completed_scores("soccer")
+    logger.info("[admin] enrich-corners: %s completed games fetched once", len(completed_games or []))
     async for doc in db.actual_results.find({"total_corners": {"$exists": False}}).limit(limit):
         scanned += 1
         match_id = doc.get("match_id")
-        home = doc.get("home_team") or doc.get("home_team")
-        away = doc.get("away_team") or doc.get("away_team")
+        home = doc.get("home_team") or doc.get("home_team_name")
+        away = doc.get("away_team") or doc.get("away_team_name")
         date = doc.get("match_date")
+        sport = doc.get("sport", "soccer")
         if not match_id or not home or not away or not date:
             continue
 
         try:
-            stats = _fetch_corner_stats(home, away, date)
+            stats = _fetch_corner_stats(home, away, date, sport, completed_games=completed_games)
             if not stats:
                 continue
             payload = {
