@@ -1,6 +1,7 @@
 # app/config/settings.py
 import json
 from typing import List, Union
+from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -77,9 +78,8 @@ class Settings(BaseSettings):
     REQUESTS_PER_MINUTE:    int   = 30
     SCRAPING_DELAY_SECONDS: float = 1.5
 
-    @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", "SUPPORTED_SPORTS", mode="before")
-    @classmethod
-    def parse_csv_lists(cls, value):
+    @staticmethod
+    def _parse_list_env(value):
         if isinstance(value, str):
             stripped = value.strip()
             # JSON array form, e.g. ALLOWED_HOSTS=["a.com","b.com"] or
@@ -88,13 +88,43 @@ class Settings(BaseSettings):
                 try:
                     parsed = json.loads(stripped)
                     if isinstance(parsed, list):
-                        return [str(item).strip() for item in parsed]
+                        return [str(item).strip() for item in parsed if str(item).strip()]
                 except (ValueError, TypeError):
                     pass  # malformed JSON array -> fall back to CSV split below
             # Comma-separated form, e.g. ALLOWED_HOSTS=*,a.com,b.com or
             # SUPPORTED_SPORTS=soccer
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @staticmethod
+    def _normalize_allowed_host(host: str) -> str:
+        host = host.strip()
+        if not host or host == "*":
+            return host
+
+        # Operators often paste full Render/custom URLs into ALLOWED_HOSTS.
+        # Starlette TrustedHostMiddleware expects bare host patterns only, so
+        # normalize "https://api.example.com/path" to "api.example.com".
+        parsed = urlsplit(host if "://" in host else f"//{host}")
+        normalized = parsed.hostname or host.split("/", 1)[0]
+        if host.startswith("*."):
+            return f"*.{normalized.lstrip('*.')}"
+        return normalized
+
+    @field_validator("ALLOWED_ORIGINS", "SUPPORTED_SPORTS", mode="before")
+    @classmethod
+    def parse_csv_lists(cls, value):
+        return cls._parse_list_env(value)
+
+    @field_validator("ALLOWED_HOSTS", mode="before")
+    @classmethod
+    def parse_allowed_hosts(cls, value):
+        hosts = cls._parse_list_env(value)
+        if isinstance(hosts, list):
+            normalized = [cls._normalize_allowed_host(str(host)) for host in hosts]
+            normalized = [host for host in normalized if host]
+            return normalized or ["*"]
+        return hosts
 
     # extra="ignore" (not the pydantic default "forbid"): env vars that were
     # removed from this model — e.g. RAPID_API_KEY (deleted in the Sprint 4.4
