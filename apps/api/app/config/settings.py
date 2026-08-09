@@ -1,7 +1,9 @@
 # app/config/settings.py
+import json
+from typing import List, Union
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
 
 
 class Settings(BaseSettings):
@@ -14,13 +16,20 @@ class Settings(BaseSettings):
     ODDS_API_KEY:   str = ""
 
     # App
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # List fields are typed as Union[List[str], str] (NOT plain List[str]) on
+    # purpose: pydantic-settings 2.2+ json.loads()s every complex field from the
+    # env BEFORE field validators run, so a plain value like ALLOWED_HOSTS=*
+    # (or a comma-separated list) crashes boot with SettingsError. A Union
+    # annotation makes the env source treat JSON-parse failure as non-fatal
+    # (allow_parse_failure=True), so the raw string reaches parse_csv_lists
+    # below, which handles both CSV and JSON-array forms.
+    ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000"]
     # Defaults to accepting any Host header so containerized/public deployments do
     # not fail every request with Starlette TrustedHostMiddleware 400s when the
     # platform injects its own domain/IP. Set this env var to a comma-separated
     # allowlist (for example: "api.example.com,localhost,127.0.0.1") to enforce
     # strict host validation in production.
-    ALLOWED_HOSTS: List[str] = ["*"]
+    ALLOWED_HOSTS: Union[List[str], str] = ["*"]
     SECRET_KEY: str = "change-this-in-production"
     DEBUG: bool = False
 
@@ -40,8 +49,10 @@ class Settings(BaseSettings):
     # Best-effort real expected-goals lookup (Understat, free) at prediction
     # time; falls back to the heuristic when the source doesn't cover a fixture.
     ENABLE_XG_SCRAPING:   bool = True
-    # Supported sports for the platform (single-source-of-truth)
-    SUPPORTED_SPORTS: list = ["soccer"]
+    # Supported sports for the platform (single-source-of-truth). Union type for
+    # the same reason as ALLOWED_HOSTS: a plain non-JSON env value (e.g.
+    # SUPPORTED_SPORTS=soccer) would crash pydantic-settings' JSON decode.
+    SUPPORTED_SPORTS: Union[list, str] = ["soccer"]
 
     # In-process cache caps
     SEARCH_CACHE_MAX_ENTRIES: int = 750
@@ -66,10 +77,22 @@ class Settings(BaseSettings):
     REQUESTS_PER_MINUTE:    int   = 30
     SCRAPING_DELAY_SECONDS: float = 1.5
 
-    @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", mode="before")
+    @field_validator("ALLOWED_ORIGINS", "ALLOWED_HOSTS", "SUPPORTED_SPORTS", mode="before")
     @classmethod
     def parse_csv_lists(cls, value):
         if isinstance(value, str):
+            stripped = value.strip()
+            # JSON array form, e.g. ALLOWED_HOSTS=["a.com","b.com"] or
+            # SUPPORTED_SPORTS=["soccer"]
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed]
+                except (ValueError, TypeError):
+                    pass  # malformed JSON array -> fall back to CSV split below
+            # Comma-separated form, e.g. ALLOWED_HOSTS=*,a.com,b.com or
+            # SUPPORTED_SPORTS=soccer
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
