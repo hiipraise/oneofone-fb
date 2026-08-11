@@ -24,6 +24,7 @@ export function MessageBanner({ msg }) {
 
 export default function TriggerControls({
   status,
+  canManageScheduler,
   togglingEnabled,
   triggering,
   resolving,
@@ -40,7 +41,7 @@ export default function TriggerControls({
 
       <button
         onClick={onToggleEnabled}
-        disabled={togglingEnabled || !status?.scheduler_running}
+        disabled={togglingEnabled || !status?.scheduler_running || !canManageScheduler}
         className={`text-xs px-3 py-2 rounded-sm border font-display ${
           status?.scheduler_enabled === false
             ? "border-brand-red text-brand-redlight bg-brand-reddark"
