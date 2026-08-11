@@ -4,8 +4,12 @@ import { DEFAULT_API_CONTRACT } from "../config/apiContract";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
-const SCHEDULER_ADMIN_KEY = import.meta.env.VITE_SCHEDULER_ADMIN_KEY || "";
-const schedulerAuth = () => SCHEDULER_ADMIN_KEY ? { headers: { "X-Scheduler-Key": SCHEDULER_ADMIN_KEY } } : undefined;
+const SCHEDULER_ADMIN_KEY = (import.meta.env.VITE_SCHEDULER_ADMIN_KEY || "").trim();
+export const hasSchedulerAdminKey = Boolean(SCHEDULER_ADMIN_KEY);
+const schedulerAuth = () =>
+  hasSchedulerAdminKey
+    ? { headers: { "X-Scheduler-Key": SCHEDULER_ADMIN_KEY } }
+    : undefined;
 
 const toSafePathSegment = (value) => encodeURIComponent(String(value ?? "").trim());
 

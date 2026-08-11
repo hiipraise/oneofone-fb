@@ -5,7 +5,7 @@
 // the fixtures table, prediction groups, config panel, and the layout.
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
-import api from "../services/api";
+import api, { hasSchedulerAdminKey } from "../services/api";
 import PaginationControls from "../components/PaginationControls";
 import { disableScheduler, enableScheduler, triggerResolution, triggerScheduler } from "../services/api";
 import { watTodayISO } from "../utils/wat";
@@ -511,6 +511,13 @@ export default function SchedulerPage() {
   };
 
   const handleToggleEnabled = async () => {
+    if (!hasSchedulerAdminKey) {
+      setTrigMsg({
+        type: "error",
+        text: "Scheduler admin key is missing in web env (VITE_SCHEDULER_ADMIN_KEY).",
+      });
+      return;
+    }
     setTogglingEnabled(true);
     setTrigMsg(null);
     try {
@@ -524,7 +531,7 @@ export default function SchedulerPage() {
     } catch (e) {
       setTrigMsg({
         type: "error",
-        text: e.response?.data?.detail || "Scheduler toggle failed",
+        text: e.response?.data?.detail || e.message || "Scheduler toggle failed",
       });
     } finally {
       setTogglingEnabled(false);
@@ -600,6 +607,7 @@ export default function SchedulerPage() {
         </div>
         <TriggerControls
           status={status}
+          canManageScheduler={hasSchedulerAdminKey}
           togglingEnabled={togglingEnabled}
           triggering={triggering}
           resolving={resolving}
