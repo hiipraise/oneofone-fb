@@ -16,11 +16,15 @@ jobs:
         env:
           RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
         run: |
-          test -n "$RENDER_APP_URL"
+          test -n "$RENDER_APP_URL" || { echo "RENDER_APP_URL secret not set"; exit 1; }
           for i in 1 2 3 4 5; do
-            if curl --fail --silent --show-error --max-time 20 "$RENDER_APP_URL/api/scheduler/ping"; then
+            echo "Attempt $i/5: pinging $RENDER_APP_URL/api/scheduler/ping"
+            if curl --fail --silent --show-error --max-time 30 "$RENDER_APP_URL/api/scheduler/ping"; then
+              echo "Success on attempt $i"
               exit 0
             fi
+            echo "Attempt $i failed. Retrying in 10s..."
             sleep 10
           done
+          echo "All 5 attempts failed"
           exit 1
