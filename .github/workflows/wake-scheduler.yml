@@ -17,4 +17,10 @@ jobs:
           RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
         run: |
           test -n "$RENDER_APP_URL"
-          curl --fail --silent --show-error --max-time 20 "$RENDER_APP_URL/api/scheduler/ping"
+          for i in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 20 "$RENDER_APP_URL/api/scheduler/ping"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
