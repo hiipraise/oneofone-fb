@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from app.utils.timezone import now_wat, WAT
 from typing import Dict, Optional, List, Any
 
+from app.config.settings import settings
 from app.config.database import get_db
 from app.schemas.prediction_schema import PredictionRequest, PredictionOutput
 from app.services.web_search_service import (
