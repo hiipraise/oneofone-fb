@@ -337,23 +337,25 @@ async def create_prediction(request: PredictionRequest, force_refresh: bool = Fa
     olg_away = bool(isinstance(away_stats, dict) and away_stats.get("openligadb_available"))
 
     data_sources = ["ESPN Public API (team stats)"]
+    unavailable_sources = []
     if olg_home or olg_away:
         data_sources.append("OpenLigaDB (free scraped goals/form stats)")
     if scraped_xg:
         data_sources.append("Understat xG (real expected goals)")
     else:
-        data_sources.append("Understat xG (unavailable — heuristic xG used)")
+        unavailable_sources.append("Understat xG (heuristic xG used)")
     if h2h_total > 0:
         data_sources.append("Web search H2H + venue (Serper/DuckDuckGo)")
     else:
-        data_sources.append("Web search H2H + venue (unavailable — priors used)")
+        unavailable_sources.append("Web search H2H + venue (priors used)")
     if odds_live:
         data_sources.append("The Odds API (live odds)")
     else:
-        data_sources.append("The Odds API (unavailable — priors used)")
+        unavailable_sources.append("The Odds API (priors used)")
 
     feature_provenance = {
         "sources": data_sources,
+        "unavailable_sources": unavailable_sources,
         "h2h_games_found": h2h_total,
         "odds_live": odds_live,
         "venue_signal_present": venue_signal,
