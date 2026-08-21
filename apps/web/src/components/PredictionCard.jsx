@@ -412,7 +412,7 @@ export default function PredictionCard({
     .filter(Boolean)
     .map((src) => {
       if (typeof src === "string") {
-        return { title: src, link: src, source: null };
+        return { title: src, link: "", source: null };
       }
       return {
         title: src.title || src.link || src.source || "Source",
