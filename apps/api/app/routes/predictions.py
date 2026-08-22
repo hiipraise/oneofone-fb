@@ -45,8 +45,17 @@ async def list_predictions(
     sport: Optional[str] = Query(None, pattern="^soccer$"),
     limit: int = Query(PREDICTIONS_LIMIT_DEFAULT, ge=1, le=PREDICTIONS_LIMIT_MAX),
     include_deleted: bool = Query(False),
+    match_date: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ):
-    return await get_predictions(sport=sport, limit=limit, include_deleted=include_deleted)
+    # A history day must include every game scheduled for that date.  The
+    # regular list endpoint remains paged for callers that do not filter by a
+    # match date.
+    return await get_predictions(
+        sport=sport,
+        limit=None if match_date else limit,
+        include_deleted=include_deleted,
+        match_date=match_date,
+    )
 
 
 @router.get("/groups")

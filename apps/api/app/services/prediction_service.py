@@ -455,17 +455,23 @@ async def repredict_prediction(match_id: str) -> Optional[PredictionOutput]:
 
 async def get_predictions(
     sport: Optional[str] = None,
-    limit: int = 50,
+    limit: Optional[int] = 50,
     include_deleted: bool = False,
+    match_date: Optional[str] = None,
 ) -> List[Dict]:
     db = get_db()
     query: Dict = {}
     if sport:
         query["sport"] = sport
+    if match_date:
+        query["match_date"] = match_date
     if not include_deleted:
         query["deleted_at"] = None
     results = []
-    async for doc in db.predictions.find(query).sort("timestamp", -1).limit(limit):
+    cursor = db.predictions.find(query).sort("timestamp", -1)
+    if limit is not None:
+        cursor = cursor.limit(limit)
+    async for doc in cursor:
         doc.pop("_id", None)
         results.append(doc)
     return results
