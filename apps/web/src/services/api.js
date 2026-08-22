@@ -53,9 +53,15 @@ export const getPredictions = (
   sport,
   limit = DEFAULT_API_CONTRACT.field_limits.predictions_page_limit.default,
   includeDeleted = false,
+  matchDate,
 ) =>
   api.get("/predictions/", {
-    params: { sport, limit, include_deleted: includeDeleted },
+    params: {
+      sport,
+      limit,
+      include_deleted: includeDeleted,
+      match_date: matchDate,
+    },
   });
 
 export const getPredictionById = (matchId) =>

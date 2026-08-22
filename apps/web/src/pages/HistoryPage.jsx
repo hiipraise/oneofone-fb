@@ -108,6 +108,7 @@ export default function HistoryPage() {
   const validSport = defaultSport === SPORT ? SPORT : SPORT;
 
   const [sport] = useState(validSport);
+  const [selectedDate, setSelectedDate] = useState(todayISO);
   const [view, setView] = useState("byDate");
   const [expandedGroupId, setExpandedGroupId] = useState(null);
   const [search, setSearch] = useState("");
@@ -123,8 +124,13 @@ export default function HistoryPage() {
   const [resolveMsg, setResolveMsg] = useState(null);
   const resultFormRef = useRef(null);
 
-  // Reduce limits to improve load performance
-  const { data, loading, error, refetch } = usePredictions(sport, 100);
+  // Date-filtered requests return every prediction scheduled for that day.
+  const { data, loading, error, refetch } = usePredictions(
+    sport,
+    100,
+    0,
+    selectedDate,
+  );
   const { data: results = [], refetch: refetchResults } = useResults(100);
   const { data: summary, refetch: refetchSummary } = useMetricsSummary();
   const engineStatusBySport = summary?.is_trained || null;
@@ -364,6 +370,12 @@ export default function HistoryPage() {
     }
   };
 
+  const changeDate = (days) => {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    setSelectedDate(date.toISOString().slice(0, 10));
+  };
+
   return (
     <div className="animate-fade-in">
       {/* Header */}
@@ -373,8 +385,7 @@ export default function HistoryPage() {
             PREDICTION HISTORY
           </h1>
           <p className="font-body text-xs text-gray-600 mt-1">
-            {filtered.length} of {data.length} predictions · click row for match
-            ID
+            {filtered.length} of {data.length} predictions for {formatPredictionDateLabel(selectedDate)} · click row for match ID
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -437,6 +448,40 @@ export default function HistoryPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <div className="font-display text-xs px-3 py-1 rounded-sm border bg-brand-red border-brand-red text-white">
               FOOTBALL / SOCCER
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => changeDate(-1)}
+                className="btn-ghost px-2"
+                aria-label="Show previous day"
+              >
+                ←
+              </button>
+              <input
+                type="date"
+                value={selectedDate}
+                max="9999-12-31"
+                onChange={(event) => event.target.value && setSelectedDate(event.target.value)}
+                className="bg-brand-gray border border-brand-midgray focus:border-brand-red outline-none text-white font-body text-xs px-2 py-1.5 rounded-sm"
+                aria-label="Prediction date"
+              />
+              <button
+                type="button"
+                onClick={() => changeDate(1)}
+                className="btn-ghost px-2"
+                aria-label="Show next day"
+              >
+                →
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayISO())}
+                className="btn-ghost"
+              >
+                TODAY
+              </button>
             </div>
 
             <div className="flex-1 min-w-[180px] max-w-xs">

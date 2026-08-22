@@ -24,10 +24,15 @@ function compatQuery(query, fallback) {
   };
 }
 
-export function usePredictions(sport = null, limit = 50, refreshMs = 0) {
+export function usePredictions(
+  sport = null,
+  limit = 50,
+  refreshMs = 0,
+  matchDate,
+) {
   const query = useQuery({
-    queryKey: ["predictions", sport || "all", limit],
-    queryFn: () => getPredictions(sport, limit).then(asArray),
+    queryKey: ["predictions", sport || "all", limit, matchDate || "all-dates"],
+    queryFn: () => getPredictions(sport, limit, false, matchDate).then(asArray),
     refetchInterval: refreshMs && refreshMs >= 1000 ? refreshMs : false,
     refetchIntervalInBackground: false,
   });
