@@ -1,30 +1,69 @@
-name: Wake Render scheduler
+name: Run daily scheduler
 
 on:
+  # GitHub Actions is the production scheduler. Calling the protected trigger
+  # endpoints runs the task even when the Render service was asleep, rather than
+  # merely waking its in-process APScheduler a few minutes before its run time.
   schedule:
-    # Keep these cron times in sync with apps/api/app/config/settings.py.
-    # Defaults: daily predictions 06:00 WAT => 04:58 UTC wake; result resolution 23:00 WAT => 21:58 UTC wake.
-    - cron: "58 4 * * *"
-    - cron: "58 21 * * *"
+    # 06:00 and 23:00 Africa/Lagos (WAT is UTC+1 and has no DST).
+    - cron: "0 5 * * *"
+    - cron: "0 22 * * *"
   workflow_dispatch:
+    inputs:
+      task:
+        description: Scheduler task to run
+        required: true
+        default: predictions
+        type: choice
+        options:
+          - predictions
+          - resolution
+
+permissions:
+  contents: read
 
 jobs:
-  wake:
+  run:
+    name: Run ${{ github.event.schedule == '0 22 * * *' || inputs.task == 'resolution' && 'result resolution' || 'daily predictions' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: production-scheduler-${{ github.event.schedule || inputs.task }}
+      cancel-in-progress: false
+    env:
+      RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
+      SCHEDULER_ADMIN_KEY: ${{ secrets.SCHEDULER_ADMIN_KEY }}
     steps:
-      - name: Wake scheduler endpoint once
-        env:
-          RENDER_APP_URL: ${{ secrets.RENDER_APP_URL }}
+      - name: Validate scheduler configuration
         run: |
           test -n "$RENDER_APP_URL" || { echo "RENDER_APP_URL secret not set"; exit 1; }
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i/5: pinging $RENDER_APP_URL/api/scheduler/ping"
-            if curl --fail --silent --show-error --max-time 30 "$RENDER_APP_URL/api/scheduler/ping"; then
-              echo "Success on attempt $i"
+          test -n "$SCHEDULER_ADMIN_KEY" || { echo "SCHEDULER_ADMIN_KEY secret not set"; exit 1; }
+
+      - name: Trigger scheduled task
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="${RENDER_APP_URL%/}"
+          endpoint="/api/scheduler/trigger"
+          task_name="daily predictions"
+
+          if [[ "${{ github.event.schedule }}" == "0 22 * * *" || "${{ inputs.task }}" == "resolution" ]]; then
+            endpoint="/api/scheduler/trigger-resolution"
+            task_name="result resolution"
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            echo "Attempt ${attempt}/5: triggering ${task_name}"
+            if curl --fail --silent --show-error --max-time 60 \
+              --request POST \
+              --header "X-Scheduler-Key: ${SCHEDULER_ADMIN_KEY}" \
+              "${base_url}${endpoint}"; then
+              echo
+              echo "${task_name} accepted on attempt ${attempt}."
               exit 0
             fi
-            echo "Attempt $i failed. Retrying in 10s..."
-            sleep 10
+            echo "Attempt ${attempt} failed; retrying in 15 seconds."
+            sleep 15
           done
-          echo "All 5 attempts failed"
+
+          echo "Unable to trigger ${task_name} after 5 attempts."
           exit 1
